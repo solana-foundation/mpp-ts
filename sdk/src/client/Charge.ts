@@ -17,6 +17,7 @@ import {
   type Address,
   type TransactionSigner,
   type Instruction,
+  type Blockhash,
 } from '@solana/kit'
 import { getTransferSolInstruction } from '@solana-program/system'
 import {
@@ -184,9 +185,7 @@ export function charge(parameters: charge.Parameters) {
       // Use server-provided blockhash if available, otherwise fetch one.
       const latestBlockhash = serverBlockhash
         ? {
-            blockhash: serverBlockhash as Parameters<
-              typeof setTransactionMessageLifetimeUsingBlockhash
-            >[0]['blockhash'],
+            blockhash: serverBlockhash as Blockhash,
             lastValidBlockHeight: BigInt(0), // Server doesn't provide this; tx lifetime is managed by the blockhash itself.
           }
         : (await rpc.getLatestBlockhash().send()).value
@@ -333,6 +332,7 @@ export declare namespace charge {
      * Solana transaction signer. Compatible with:
      * - ConnectorKit's `useTransactionSigner()` hook
      * - `createKeyPairSignerFromBytes()` from `@solana/kit` for headless usage
+     * - Solana Keychain's `SolanaSigner` for remote signers
      * - Any `TransactionSigner` implementation
      */
     signer: TransactionSigner

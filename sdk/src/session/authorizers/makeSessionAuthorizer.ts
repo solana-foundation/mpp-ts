@@ -1,4 +1,4 @@
-import type { KeyPairSigner } from '@solana/kit'
+import type { MessagePartialSigner } from '@solana/kit'
 import type { SessionAuthorizer, SessionPolicyProfile } from '../Types.js'
 import {
   BudgetAuthorizer,
@@ -15,7 +15,7 @@ import {
 
 export interface MakeSessionAuthorizerParameters {
   profile: SessionPolicyProfile
-  signer?: KeyPairSigner
+  signer?: MessagePartialSigner
   swigWallet?: SwigWalletAdapter
   rpcUrl?: string
   allowedPrograms?: string[]
@@ -128,9 +128,9 @@ export function makeSessionAuthorizer(
 }
 
 function requireSigner(
-  signer: KeyPairSigner | undefined,
+  signer: MessagePartialSigner | undefined,
   profile: SessionPolicyProfile['profile'],
-): KeyPairSigner {
+): MessagePartialSigner {
   if (!signer) {
     throw new Error(
       `makeSessionAuthorizer requires \`signer\` for profile "${profile}"`,

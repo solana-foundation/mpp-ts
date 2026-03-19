@@ -26,7 +26,7 @@ Solana payment method for the [Machine Payments Protocol](https://mpp.dev).
 - [Swig](https://build.onswig.com) smart wallet integration for on-chain spend limits
 
 **General**
-- Works with [ConnectorKit](https://www.connectorkit.dev) and `@solana/kit` keypair signers
+- Works with [ConnectorKit](https://www.connectorkit.dev), `@solana/kit` keypair signers, and [Solana Keychain](https://github.com/solana-foundation/solana-keychain) remote signers
 - Server pre-fetches `recentBlockhash` to save client an RPC round-trip
 - Transaction simulation before broadcast to prevent wasted fees
 
@@ -147,10 +147,10 @@ const response = await mppx.fetch('https://api.example.com/metered-endpoint')
 The server can pay transaction fees on behalf of clients:
 
 ```ts
-// Server — pass a KeyPairSigner to cover fees
+// Server — pass a TransactionPartialSigner to cover fees
 solana.charge({
   recipient: '...',
-  signer: feePayerSigner, // server's KeyPairSigner
+  signer: feePayerSigner, // KeyPairSigner, Keychain SolanaSigner, etc.
 })
 
 // Client — no changes needed, fee payer is handled automatically

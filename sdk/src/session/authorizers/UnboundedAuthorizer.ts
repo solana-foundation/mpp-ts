@@ -1,4 +1,4 @@
-import type { KeyPairSigner } from '@solana/kit'
+import type { MessagePartialSigner } from '@solana/kit'
 import {
   type AuthorizeCloseInput,
   type AuthorizeOpenInput,
@@ -19,7 +19,7 @@ type ChannelProgress = {
 }
 
 export interface UnboundedAuthorizerParameters {
-  signer: KeyPairSigner
+  signer: MessagePartialSigner
   allowedPrograms?: string[]
   expiresAt?: string
   requiresInteractiveApproval?: Partial<
@@ -31,7 +31,7 @@ export interface UnboundedAuthorizerParameters {
 }
 
 export class UnboundedAuthorizer implements SessionAuthorizer {
-  private readonly signer: KeyPairSigner
+  private readonly signer: MessagePartialSigner
   private readonly allowedPrograms?: Set<string>
   private readonly expiresAt?: string
   private readonly expiresAtUnixMs?: number

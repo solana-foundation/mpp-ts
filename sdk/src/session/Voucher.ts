@@ -6,7 +6,7 @@ import {
   getPublicKeyFromAddress,
   signatureBytes,
   verifySignature,
-  type KeyPairSigner,
+  type MessagePartialSigner,
 } from '@solana/kit'
 import type { SessionVoucher, SignedSessionVoucher } from './Types.js'
 
@@ -21,7 +21,7 @@ export function serializeVoucher(voucher: SessionVoucher): Uint8Array {
 }
 
 export async function signVoucher(
-  signer: KeyPairSigner,
+  signer: MessagePartialSigner,
   voucher: SessionVoucher,
 ): Promise<SignedSessionVoucher> {
   const signable = createSignableMessage(serializeVoucher(voucher))

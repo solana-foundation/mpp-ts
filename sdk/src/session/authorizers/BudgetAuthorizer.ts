@@ -1,4 +1,4 @@
-import { createSolanaRpc, type KeyPairSigner } from '@solana/kit'
+import { createSolanaRpc, type MessagePartialSigner } from '@solana/kit'
 import {
   type AuthorizeCloseInput,
   type AuthorizeOpenInput,
@@ -62,7 +62,7 @@ type ChannelProgress = {
 }
 
 export interface BudgetAuthorizerParameters {
-  signer: KeyPairSigner
+  signer: MessagePartialSigner
   maxCumulativeAmount: string
   maxDepositAmount?: string
   validUntil?: string
@@ -84,7 +84,7 @@ export interface BudgetAuthorizerParameters {
  * - Program access and spend caps are validated from Swig role actions.
  */
 export class BudgetAuthorizer implements SessionAuthorizer {
-  private readonly signer: KeyPairSigner
+  private readonly signer: MessagePartialSigner
   private readonly maxCumulativeAmount: bigint
   private readonly maxDepositAmount?: bigint
   private readonly validUntil?: string

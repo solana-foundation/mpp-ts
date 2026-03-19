@@ -2,13 +2,11 @@ import { Method, Receipt, Store } from 'mppx'
 import { findAssociatedTokenPda } from '@solana-program/token'
 import {
   address,
-  getTransactionDecoder,
-  partiallySignTransaction,
-  getBase64EncodedWireTransaction,
-  isKeyPairSigner,
-  type TransactionSigner,
+  isTransactionPartialSigner,
+  type TransactionPartialSigner,
 } from '@solana/kit'
 import * as Methods from '../Methods.js'
+import { coSignBase64Transaction } from '../utils/transactions.js'
 import {
   TOKEN_PROGRAM,
   TOKEN_2022_PROGRAM,
@@ -68,9 +66,9 @@ export function charge(parameters: charge.Parameters) {
     throw new Error('decimals is required when splToken is set')
   }
 
-  if (signer && !isKeyPairSigner(signer)) {
+  if (signer && !isTransactionPartialSigner(signer)) {
     throw new Error(
-      'signer must be a KeyPairSigner (created via generateKeyPairSigner or createKeyPairSignerFromBytes) for fee payer mode',
+      'signer must implement signTransactions() for fee payer mode (e.g. KeyPairSigner, SolanaSigner)',
     )
   }
 
@@ -178,7 +176,7 @@ async function verifyTransaction(
   rpcUrl: string,
   recipient: string,
   store: Store.Store,
-  signer?: TransactionSigner,
+  signer?: TransactionPartialSigner,
 ) {
   const { transaction: clientTxBase64 } = credential.payload
   if (!clientTxBase64) {
@@ -193,12 +191,8 @@ async function verifyTransaction(
   // Recipients can close ATAs to reclaim rent, forcing re-creation on the next
   // payment. Servers should verify ATA existence before signing or factor rent
   // into pricing to mitigate this drain vector.
-  if (signer && isKeyPairSigner(signer)) {
-    const txBytes = Uint8Array.from(atob(clientTxBase64), (c) => c.charCodeAt(0))
-    const decoder = getTransactionDecoder()
-    const tx = decoder.decode(txBytes)
-    const cosigned = await partiallySignTransaction([signer.keyPair], tx)
-    txToSend = getBase64EncodedWireTransaction(cosigned)
+  if (signer) {
+    txToSend = await coSignBase64Transaction(signer, clientTxBase64)
   }
 
   // Simulate before broadcast to catch failures without wasting fees.
@@ -540,14 +534,13 @@ export declare namespace charge {
      */
     store?: Store.Store
     /**
-     * Server-side KeyPairSigner for fee sponsorship (feePayer mode).
+     * Server-side signer for fee sponsorship (feePayer mode).
      * When provided, the server's public key is included in the challenge
      * as `feePayerKey`, and the server co-signs the transaction as fee payer
      * before broadcasting.
      *
-     * Must be a KeyPairSigner (from `generateKeyPairSigner` or
-     * `createKeyPairSignerFromBytes`).
+     * Accepts any TransactionPartialSigner — KeyPairSigner, Keychain SolanaSigner, etc.
      */
-    signer?: TransactionSigner
+    signer?: TransactionPartialSigner
   }
 }
