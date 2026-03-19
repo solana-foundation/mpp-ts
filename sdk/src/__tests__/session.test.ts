@@ -2,7 +2,7 @@ import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSigner } from '@solana/kit';
 import { Store } from 'mppx/server';
-import { session } from '../server/Session.js';
+import { session, type SessionParameters } from '../server/Session.js';
 import { signVoucher } from '../session/Voucher.js';
 import * as ChannelStore from '../session/ChannelStore.js';
 import type { AuthorizationMode, ChannelState, SignedSessionVoucher } from '../session/Types.js';
@@ -803,7 +803,7 @@ test('rejects actions after channel is closed', async () => {
     );
 });
 
-function createMethod(overrides: Partial<session.Parameters> = {}) {
+function createMethod(overrides: Partial<SessionParameters> = {}) {
     return session({
         recipient: RECIPIENT,
         network: NETWORK,

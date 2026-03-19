@@ -61,7 +61,7 @@ type TransactionVerifier = {
     verifyTopup?(channelId: string, topupTx: string, amount: string): Promise<void>;
 };
 
-export function session(parameters: session.Parameters) {
+export function session(parameters: SessionParameters) {
     const { recipient, network = 'mainnet-beta', asset, channelProgram, store = Store.memory() } = parameters;
 
     assertSessionParameters(parameters);
@@ -141,7 +141,7 @@ async function handleOpen(
     payload: OpenPayload,
     challenge: SessionChallenge,
     configuredRecipient: string,
-    parameters: session.Parameters,
+    parameters: SessionParameters,
     challengeId?: string,
 ) {
     const request = challenge.request;
@@ -239,7 +239,7 @@ async function handleUpdate(
     channelStore: ChannelStore.ChannelStore,
     payload: UpdatePayload,
     challenge: SessionChallenge,
-    parameters: session.Parameters,
+    parameters: SessionParameters,
     challengeId?: string,
 ) {
     const channel = await channelStore.getChannel(payload.channelId);
@@ -313,7 +313,7 @@ async function handleUpdate(
 async function handleTopup(
     channelStore: ChannelStore.ChannelStore,
     payload: TopupPayload,
-    parameters: session.Parameters,
+    parameters: SessionParameters,
     challengeId?: string,
 ) {
     const current = await channelStore.getChannel(payload.channelId);
@@ -358,7 +358,7 @@ async function handleClose(
     channelStore: ChannelStore.ChannelStore,
     payload: ClosePayload,
     challenge: SessionChallenge,
-    parameters: session.Parameters,
+    parameters: SessionParameters,
     challengeId?: string,
 ) {
     const channel = await channelStore.getChannel(payload.channelId);
@@ -450,7 +450,7 @@ async function handleClose(
     return toSuccessReceipt(payload.closeTx ?? payload.channelId, challengeId);
 }
 
-function assertSessionParameters(parameters: session.Parameters) {
+function assertSessionParameters(parameters: SessionParameters) {
     if (!parameters.recipient.trim()) {
         throw new Error('recipient is required');
     }
@@ -479,7 +479,7 @@ function assertSessionParameters(parameters: session.Parameters) {
     }
 }
 
-function toVerifierRequest(verifier: session.Parameters['verifier']) {
+function toVerifierRequest(verifier: SessionParameters['verifier']) {
     if (!verifier) {
         return undefined;
     }
@@ -657,31 +657,29 @@ function toSuccessReceipt(channelId: string, challengeId?: string): Receipt.Rece
     });
 }
 
-export declare namespace session {
-    type Parameters = {
-        asset: { decimals: number; kind: 'sol' | 'spl'; mint?: string; symbol?: string };
-        channelProgram: string;
-        network?: 'devnet' | 'localnet' | 'mainnet-beta' | 'surfnet' | (string & {});
-        pricing?: {
-            amountPerUnit: string;
-            meter: string;
-            minDebit?: string;
-            unit: string;
-        };
-        recipient: string;
-        rpcUrl?: string;
-        sessionDefaults?: {
-            closeBehavior?: 'payer_must_close' | 'server_may_finalize';
-            settleInterval?: { kind: string; minIncrement?: string; seconds?: number };
-            suggestedDeposit?: string;
-            ttlSeconds?: number;
-        };
-        store?: Store.Store;
-        transactionVerifier?: TransactionVerifier;
-        verifier?: {
-            acceptAuthorizationModes?: Array<'regular_budget' | 'regular_unbounded' | 'swig_session'>;
-            maxClockSkewSeconds?: number;
-            voucherVerifier?: VoucherVerifier;
-        };
+export type SessionParameters = {
+    asset: { decimals: number; kind: 'sol' | 'spl'; mint?: string; symbol?: string };
+    channelProgram: string;
+    network?: 'devnet' | 'localnet' | 'mainnet-beta' | 'surfnet' | (string & {});
+    pricing?: {
+        amountPerUnit: string;
+        meter: string;
+        minDebit?: string;
+        unit: string;
     };
-}
+    recipient: string;
+    rpcUrl?: string;
+    sessionDefaults?: {
+        closeBehavior?: 'payer_must_close' | 'server_may_finalize';
+        settleInterval?: { kind: string; minIncrement?: string; seconds?: number };
+        suggestedDeposit?: string;
+        ttlSeconds?: number;
+    };
+    store?: Store.Store;
+    transactionVerifier?: TransactionVerifier;
+    verifier?: {
+        acceptAuthorizationModes?: Array<'regular_budget' | 'regular_unbounded' | 'swig_session'>;
+        maxClockSkewSeconds?: number;
+        voucherVerifier?: VoucherVerifier;
+    };
+};

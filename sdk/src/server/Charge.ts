@@ -39,7 +39,7 @@ import { coSignBase64Transaction } from '../utils/transactions.js';
  * }
  * ```
  */
-export function charge(parameters: charge.Parameters) {
+export function charge(parameters: ChargeParameters) {
     const {
         recipient,
         splToken,
@@ -451,33 +451,31 @@ async function waitForConfirmation(rpcUrl: string, signature: string, timeoutMs 
     throw new Error('Transaction confirmation timeout');
 }
 
-export declare namespace charge {
-    type Parameters = {
-        /** Token decimals (required when splToken is set). */
-        decimals?: number;
-        /** Solana network. Defaults to 'mainnet-beta'. */
-        network?: 'devnet' | 'localnet' | 'mainnet-beta' | (string & {});
-        /** Base58-encoded recipient public key that receives payments. */
-        recipient: string;
-        /** Custom RPC URL. Defaults to public RPC for the selected network. */
-        rpcUrl?: string;
-        /**
-         * Server-side signer for fee sponsorship (feePayer mode).
-         * When provided, the server's public key is included in the challenge
-         * as `feePayerKey`, and the server co-signs the transaction as fee payer
-         * before broadcasting.
-         *
-         * Accepts any TransactionPartialSigner — KeyPairSigner, Keychain SolanaSigner, etc.
-         */
-        signer?: TransactionPartialSigner;
-        /** SPL token mint address. If absent, payments are in native SOL. */
-        splToken?: string;
-        /**
-         * Pluggable key-value store for consumed-signature tracking (replay prevention).
-         * Defaults to in-memory. Use a persistent store in production.
-         */
-        store?: Store.Store;
-        /** Token program address. Defaults to TOKEN_PROGRAM. Set to TOKEN_2022_PROGRAM for Token-2022 mints. */
-        tokenProgram?: string;
-    };
-}
+export type ChargeParameters = {
+    /** Token decimals (required when splToken is set). */
+    decimals?: number;
+    /** Solana network. Defaults to 'mainnet-beta'. */
+    network?: 'devnet' | 'localnet' | 'mainnet-beta' | (string & {});
+    /** Base58-encoded recipient public key that receives payments. */
+    recipient: string;
+    /** Custom RPC URL. Defaults to public RPC for the selected network. */
+    rpcUrl?: string;
+    /**
+     * Server-side signer for fee sponsorship (feePayer mode).
+     * When provided, the server's public key is included in the challenge
+     * as `feePayerKey`, and the server co-signs the transaction as fee payer
+     * before broadcasting.
+     *
+     * Accepts any TransactionPartialSigner — KeyPairSigner, Keychain SolanaSigner, etc.
+     */
+    signer?: TransactionPartialSigner;
+    /** SPL token mint address. If absent, payments are in native SOL. */
+    splToken?: string;
+    /**
+     * Pluggable key-value store for consumed-signature tracking (replay prevention).
+     * Defaults to in-memory. Use a persistent store in production.
+     */
+    store?: Store.Store;
+    /** Token program address. Defaults to TOKEN_PROGRAM. Set to TOKEN_2022_PROGRAM for Token-2022 mints. */
+    tokenProgram?: string;
+};

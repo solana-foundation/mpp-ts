@@ -185,9 +185,9 @@ An interactive playground with a React frontend and Express backend, running aga
 
 ```bash
 surfpool start
-npm run demo:install
-npm run demo:server
-npm run demo:app
+pnpm demo:install
+pnpm demo:server
+pnpm demo:app
 ```
 
 See [demo/README.md](demo/README.md) for full details.
@@ -195,13 +195,14 @@ See [demo/README.md](demo/README.md) for full details.
 ## Development
 
 ```bash
-npm install
+pnpm install
 
-npm run typecheck          # TypeScript check
-npm test                   # Unit tests (charge + session, no network)
-npm run test:session       # Session unit tests only
-npm run test:integration   # Integration tests (requires Surfpool)
-npm run test:all           # All tests
+just fmt                   # Lint fix + format
+just build                 # Typecheck
+just test                  # Unit tests (charge + session, no network)
+just test-integration      # Integration tests (requires Surfpool)
+just test-all              # All tests
+just pre-commit            # fmt + build + test (run before committing)
 ```
 
 ## Spec

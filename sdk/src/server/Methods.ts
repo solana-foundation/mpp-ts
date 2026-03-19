@@ -1,5 +1,8 @@
-import { charge as charge_ } from './Charge.js';
+import { charge as charge_, type ChargeParameters } from './Charge.js';
 import { session as session_ } from './Session.js';
+
+export type { ChargeParameters } from './Charge.js';
+export type { SessionParameters } from './Session.js';
 
 /**
  * Creates Solana payment methods for usage on the server.
@@ -14,14 +17,10 @@ import { session as session_ } from './Session.js';
  * ```
  */
 export const solana: {
-    (parameters: solana.Parameters): ReturnType<typeof charge_>;
+    (parameters: ChargeParameters): ReturnType<typeof charge_>;
     charge: typeof charge_;
     session: typeof session_;
-} = Object.assign((parameters: solana.Parameters) => solana.charge(parameters), {
+} = Object.assign((parameters: ChargeParameters) => solana.charge(parameters), {
     charge: charge_,
     session: session_,
 });
-
-export declare namespace solana {
-    type Parameters = charge_.Parameters;
-}

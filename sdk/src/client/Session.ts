@@ -57,7 +57,7 @@ export const sessionContextSchema = z.object({
 
 export type SessionContext = z.infer<typeof sessionContextSchema>;
 
-export function session(parameters: session.Parameters) {
+export function session(parameters: SessionParameters) {
     const { signer, authorizer, autoOpen = true, autoTopup = false, settleOnLimitHit = false, onProgress } = parameters;
 
     let activeChannel: ActiveChannel | null = null;
@@ -469,7 +469,7 @@ async function handleCloseAction(
     channelProgram: string,
     recipient: string,
     network: string,
-    onProgress?: session.Parameters['onProgress'],
+    onProgress?: SessionParameters['onProgress'],
 ): Promise<string> {
     const channelId = context.channelId ?? activeChannel?.channelId;
     if (!channelId) {
@@ -609,22 +609,20 @@ function resolveOpenPayer(voucherPayer: string, signer?: TransactionSigner): str
     return voucherPayer;
 }
 
-export declare namespace session {
-    type Parameters = {
-        authorizer: SessionAuthorizer;
-        autoOpen?: boolean;
-        autoTopup?: boolean;
-        onProgress?: (event: ProgressEvent) => void;
-        settleOnLimitHit?: boolean;
-        signer?: TransactionSigner;
-    };
+export type SessionParameters = {
+    authorizer: SessionAuthorizer;
+    autoOpen?: boolean;
+    autoTopup?: boolean;
+    onProgress?: (event: SessionProgressEvent) => void;
+    settleOnLimitHit?: boolean;
+    signer?: TransactionSigner;
+};
 
-    type ProgressEvent =
-        | { asset: SessionAsset; network: string; recipient: string; type: 'challenge' }
-        | { channelId: string; cumulativeAmount: string; type: 'updated' }
-        | { channelId: string; cumulativeAmount: string; type: 'updating' }
-        | { channelId: string; type: 'closed' }
-        | { channelId: string; type: 'closing' }
-        | { channelId: string; type: 'opened' }
-        | { channelId: string; type: 'opening' };
-}
+export type SessionProgressEvent =
+    | { asset: SessionAsset; network: string; recipient: string; type: 'challenge' }
+    | { channelId: string; cumulativeAmount: string; type: 'updated' }
+    | { channelId: string; cumulativeAmount: string; type: 'updating' }
+    | { channelId: string; type: 'closed' }
+    | { channelId: string; type: 'closing' }
+    | { channelId: string; type: 'opened' }
+    | { channelId: string; type: 'opening' };

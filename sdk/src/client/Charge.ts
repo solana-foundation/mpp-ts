@@ -62,7 +62,7 @@ const textEncoder = new TextEncoder();
  * console.log(await response.json())
  * ```
  */
-export function charge(parameters: charge.Parameters) {
+export function charge(parameters: ChargeParameters) {
     const { signer, broadcast = false, onProgress } = parameters;
 
     const method = Method.toClient(Methods.charge, {
@@ -307,47 +307,45 @@ async function confirmTransaction(rpc: ReturnType<typeof createSolanaRpc>, signa
     throw new Error('Transaction confirmation timeout');
 }
 
-export declare namespace charge {
-    type Parameters = {
-        /**
-         * If true, the client broadcasts the transaction and sends the signature
-         * as a `type="signature"` credential. If false (default), the client sends
-         * the signed transaction bytes as a `type="transaction"` credential and the
-         * server broadcasts it.
-         *
-         * Cannot be used with server fee sponsorship (feePayer mode).
-         */
-        broadcast?: boolean;
-        /** Compute unit limit. Defaults to 50,000. */
-        computeUnitLimit?: number;
-        /** Compute unit price in micro-lamports for priority fees. Defaults to 1. */
-        computeUnitPrice?: bigint;
-        /** Called at each step of the payment process. */
-        onProgress?: (event: ProgressEvent) => void;
-        /** Custom RPC URL. If not set, inferred from the challenge's network field. */
-        rpcUrl?: string;
-        /**
-         * Solana transaction signer. Compatible with:
-         * - ConnectorKit's `useTransactionSigner()` hook
-         * - `createKeyPairSignerFromBytes()` from `@solana/kit` for headless usage
-         * - Solana Keychain's `SolanaSigner` for remote signers
-         * - Any `TransactionSigner` implementation
-         */
-        signer: TransactionSigner;
-    };
+export type ChargeParameters = {
+    /**
+     * If true, the client broadcasts the transaction and sends the signature
+     * as a `type="signature"` credential. If false (default), the client sends
+     * the signed transaction bytes as a `type="transaction"` credential and the
+     * server broadcasts it.
+     *
+     * Cannot be used with server fee sponsorship (feePayer mode).
+     */
+    broadcast?: boolean;
+    /** Compute unit limit. Defaults to 50,000. */
+    computeUnitLimit?: number;
+    /** Compute unit price in micro-lamports for priority fees. Defaults to 1. */
+    computeUnitPrice?: bigint;
+    /** Called at each step of the payment process. */
+    onProgress?: (event: ChargeProgressEvent) => void;
+    /** Custom RPC URL. If not set, inferred from the challenge's network field. */
+    rpcUrl?: string;
+    /**
+     * Solana transaction signer. Compatible with:
+     * - ConnectorKit's `useTransactionSigner()` hook
+     * - `createKeyPairSignerFromBytes()` from `@solana/kit` for headless usage
+     * - Solana Keychain's `SolanaSigner` for remote signers
+     * - Any `TransactionSigner` implementation
+     */
+    signer: TransactionSigner;
+};
 
-    type ProgressEvent =
-        | {
-              amount: string;
-              currency: string;
-              feePayerKey?: string;
-              recipient: string;
-              splToken?: string;
-              type: 'challenge';
-          }
-        | { signature: string; type: 'confirming' }
-        | { signature: string; type: 'paid' }
-        | { transaction: string; type: 'signed' }
-        | { type: 'paying' }
-        | { type: 'signing' };
-}
+export type ChargeProgressEvent =
+    | {
+          amount: string;
+          currency: string;
+          feePayerKey?: string;
+          recipient: string;
+          splToken?: string;
+          type: 'challenge';
+      }
+    | { signature: string; type: 'confirming' }
+    | { signature: string; type: 'paid' }
+    | { transaction: string; type: 'signed' }
+    | { type: 'paying' }
+    | { type: 'signing' };
