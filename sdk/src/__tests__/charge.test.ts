@@ -5,7 +5,7 @@
  * - Push mode (type="signature"): server fetches + verifies on-chain
  * - Pull mode (type="transaction"): server broadcasts, confirms, then verifies on-chain
  */
-import { describe, test, expect, beforeEach, afterEach } from 'vitest';
+import { test, expect, beforeEach, afterEach } from 'vitest';
 import { Store } from 'mppx/server';
 import { findAssociatedTokenPda } from '@solana-program/token';
 import { address } from '@solana/kit';

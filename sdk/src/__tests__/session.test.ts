@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach } from 'vitest';
+import { test, expect, beforeEach, afterEach } from 'vitest';
 import { generateKeyPairSigner } from '@solana/kit';
 import { Store } from 'mppx/server';
 import { session } from '../server/Session.js';

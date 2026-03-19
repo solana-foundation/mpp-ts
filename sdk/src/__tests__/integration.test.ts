@@ -8,22 +8,11 @@
  *
  * Run: npm run test:integration
  */
-import { describe, test, expect, beforeAll, afterAll } from 'vitest';
+import { test, expect, beforeAll, afterAll } from 'vitest';
 import http from 'node:http';
-import {
-    appendTransactionMessageInstructions,
-    createSolanaRpc,
-    createTransactionMessage,
-    generateKeyPairSigner,
-    getBase64EncodedWireTransaction,
-    pipe,
-    setTransactionMessageFeePayerSigner,
-    setTransactionMessageLifetimeUsingBlockhash,
-    signTransactionMessageWithSigners,
-    address,
-    type Instruction,
-} from '@solana/kit';
-import { getTransferSolInstruction } from '@solana-program/system';
+import { generateKeyPairSigner, address, lamports } from '@solana/kit';
+import { createLocalClient } from '@solana/kit-client-rpc';
+import { getTransferSolInstruction, systemProgram } from '@solana-program/system';
 import {
     fetchSwig,
     findSwigPda,
@@ -43,7 +32,7 @@ const RPC_URL = 'http://localhost:8899';
 const SESSION_CHANNEL_PROGRAM = 'swigypWHEksbC64pWKwah1WTeh9JXwx8H1rJHLdbQMB';
 
 type GeneratedSigner = Awaited<ReturnType<typeof generateKeyPairSigner>>;
-type SolanaRpcClient = ReturnType<typeof createSolanaRpc>;
+type TestClient = Awaited<ReturnType<typeof createTestClient>>;
 type SwigHarness = {
     swigAddress: string;
     swigWalletAddress: string;
@@ -64,56 +53,22 @@ type SessionHarness = {
 
 // ── Helpers ──
 
-async function airdrop(pubkey: string, lamports: number) {
-    const res = await fetch(RPC_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            jsonrpc: '2.0',
-            id: 1,
-            method: 'requestAirdrop',
-            params: [pubkey, lamports],
-        }),
-    });
-    const data = (await res.json()) as { result?: string; error?: any };
-    if (data.error) throw new Error(`Airdrop failed: ${JSON.stringify(data.error)}`);
-
-    // Wait for confirmation
-    const sig = data.result!;
-    for (let i = 0; i < 30; i++) {
-        const statusRes = await fetch(RPC_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                jsonrpc: '2.0',
-                id: 1,
-                method: 'getSignatureStatuses',
-                params: [[sig]],
-            }),
-        });
-        const statusData = (await statusRes.json()) as { result?: { value: any[] } };
-        const status = statusData.result?.value?.[0];
-        if (status?.confirmationStatus === 'confirmed' || status?.confirmationStatus === 'finalized') {
-            return sig;
-        }
-        await new Promise(r => setTimeout(r, 500));
-    }
-    throw new Error('Airdrop confirmation timeout');
+async function createTestClient(payer?: GeneratedSigner) {
+    return await createLocalClient({ payer, url: RPC_URL }).use(systemProgram());
 }
 
-async function getBalance(pubkey: string): Promise<number> {
-    const res = await fetch(RPC_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            jsonrpc: '2.0',
-            id: 1,
-            method: 'getBalance',
-            params: [pubkey],
-        }),
-    });
-    const data = (await res.json()) as { result?: { value: number } };
-    return data.result?.value ?? 0;
+async function getBalance(client: TestClient, pubkey: string): Promise<bigint> {
+    const { value } = await client.rpc.getBalance(address(pubkey)).send();
+    return value;
+}
+
+async function getConfirmedTransaction(client: TestClient, signature: string) {
+    return await client.rpc
+        .getTransaction(signature as Parameters<typeof client.rpc.getTransaction>[0], {
+            encoding: 'jsonParsed',
+            maxSupportedTransactionVersion: 0,
+        })
+        .send();
 }
 
 async function isSurfpoolRunning(): Promise<boolean> {
@@ -217,133 +172,29 @@ async function getSessionChannel(store: Store.Store, channelId: string) {
     return await SessionChannelStore.fromStore(store).getChannel(channelId);
 }
 
-async function waitForSignatureConfirmation(signature: string, timeoutMs = 30_000) {
-    const startedAt = Date.now();
-
-    while (Date.now() - startedAt < timeoutMs) {
-        const res = await fetch(RPC_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                jsonrpc: '2.0',
-                id: 1,
-                method: 'getSignatureStatuses',
-                params: [[signature]],
-            }),
-        });
-
-        const data = (await res.json()) as {
-            result?: {
-                value: Array<null | {
-                    confirmationStatus?: string;
-                    err?: unknown;
-                }>;
-            };
-        };
-
-        const status = data.result?.value?.[0];
-        if (status) {
-            if (status.err) {
-                throw new Error(`Transaction ${signature} failed: ${JSON.stringify(status.err)}`);
-            }
-
-            if (status.confirmationStatus === 'confirmed' || status.confirmationStatus === 'finalized') {
-                return;
-            }
-        }
-
-        await new Promise(resolve => setTimeout(resolve, 250));
-    }
-
-    throw new Error(`Timed out waiting for transaction confirmation: ${signature}`);
-}
-
-async function sendInstructions(parameters: {
-    rpc: SolanaRpcClient;
-    feePayer: GeneratedSigner;
-    instructions: readonly Instruction[];
-}): Promise<string> {
-    const { rpc, feePayer, instructions } = parameters;
-    const { value: latestBlockhash } = await rpc.getLatestBlockhash().send();
-
-    const txMessage = pipe(
-        createTransactionMessage({ version: 0 }),
-        message => setTransactionMessageFeePayerSigner(feePayer, message),
-        message => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, message),
-        message => appendTransactionMessageInstructions(instructions, message),
-    );
-
-    const signed = await signTransactionMessageWithSigners(txMessage);
-    const wire = getBase64EncodedWireTransaction(signed);
-    const signature = await rpc
-        .sendTransaction(wire, {
-            encoding: 'base64',
-            skipPreflight: false,
-        })
-        .send();
-
-    await waitForSignatureConfirmation(signature);
-    return signature;
-}
-
-async function getConfirmedTransaction(signature: string) {
-    const res = await fetch(RPC_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            jsonrpc: '2.0',
-            id: 1,
-            method: 'getTransaction',
-            params: [
-                signature,
-                {
-                    encoding: 'jsonParsed',
-                    maxSupportedTransactionVersion: 0,
-                },
-            ],
-        }),
-    });
-
-    const data = (await res.json()) as {
-        result?: unknown;
-        error?: unknown;
-    };
-
-    if (data.error) {
-        throw new Error(`getTransaction failed: ${JSON.stringify(data.error)}`);
-    }
-
-    return data.result ?? null;
-}
-
 async function sendMarkerTransfer(parameters: {
-    signer: GeneratedSigner;
+    client: TestClient;
     destination: string;
-    lamports?: bigint;
+    amount?: bigint;
 }): Promise<string> {
-    const rpc = createSolanaRpc(RPC_URL);
-    const { signer, destination, lamports = 1n } = parameters;
-
-    return await sendInstructions({
-        rpc,
-        feePayer: signer,
-        instructions: [
-            getTransferSolInstruction({
-                source: signer,
-                destination: address(destination),
-                amount: lamports,
-            }),
-        ],
-    });
+    const { client, destination, amount = 1n } = parameters;
+    const result = await client.system.instructions
+        .transferSol({
+            source: client.payer,
+            destination: address(destination),
+            amount,
+        })
+        .sendTransaction();
+    return result.context.signature;
 }
 
 async function createSwigHarness(parameters: {
-    walletSigner: GeneratedSigner;
+    client: TestClient;
     spendLimitLamports: bigint;
     sessionTtlSeconds: number;
 }): Promise<SwigHarness> {
-    const { walletSigner, spendLimitLamports, sessionTtlSeconds } = parameters;
-    const rpc = createSolanaRpc(RPC_URL);
+    const { client, spendLimitLamports, sessionTtlSeconds } = parameters;
+    const walletSigner = client.payer as GeneratedSigner;
     const swigRoleId = 0;
 
     const swigId = crypto.getRandomValues(new Uint8Array(32));
@@ -354,27 +205,19 @@ async function createSwigHarness(parameters: {
         authorityInfo: createEd25519SessionAuthorityInfo(walletSigner.address, BigInt(sessionTtlSeconds)),
     });
 
-    await sendInstructions({
-        rpc,
-        feePayer: walletSigner,
-        instructions: [createSwigInstruction],
-    });
+    await client.sendTransaction([createSwigInstruction]);
 
     const swigAddress = await findSwigPda(swigId);
-    let swig = await (fetchSwig as any)(rpc, swigAddress);
+    let swig = await (fetchSwig as any)(client.rpc, swigAddress);
     const swigWalletAddress = await getSwigWalletAddress(swig);
 
-    await sendInstructions({
-        rpc,
-        feePayer: walletSigner,
-        instructions: [
-            getTransferSolInstruction({
-                source: walletSigner,
-                destination: address(swigWalletAddress),
-                amount: spendLimitLamports * 4n,
-            }),
-        ],
-    });
+    await client.system.instructions
+        .transferSol({
+            source: walletSigner,
+            destination: address(swigWalletAddress),
+            amount: spendLimitLamports * 4n,
+        })
+        .sendTransaction();
 
     let currentSessionSigner: GeneratedSigner | null = null;
 
@@ -382,7 +225,7 @@ async function createSwigHarness(parameters: {
         swigAddress,
         swigWalletAddress,
         async createSessionKey(ttlSeconds: number) {
-            swig = await (fetchSwig as any)(rpc, swigAddress);
+            swig = await (fetchSwig as any)(client.rpc, swigAddress);
 
             const sessionSigner = await generateKeyPairSigner();
             const createSessionInstructions = await getCreateSessionInstructions(
@@ -392,29 +235,21 @@ async function createSwigHarness(parameters: {
                 BigInt(ttlSeconds),
             );
 
-            const openTx = await sendInstructions({
-                rpc,
-                feePayer: walletSigner,
-                instructions: createSessionInstructions,
-            });
+            const openResult = await client.sendTransaction(createSessionInstructions);
 
-            await sendInstructions({
-                rpc,
-                feePayer: walletSigner,
-                instructions: [
-                    getTransferSolInstruction({
-                        source: walletSigner,
-                        destination: sessionSigner.address,
-                        amount: 5_000_000n,
-                    }),
-                ],
-            });
+            await client.system.instructions
+                .transferSol({
+                    source: walletSigner,
+                    destination: sessionSigner.address,
+                    amount: 5_000_000n,
+                })
+                .sendTransaction();
 
             currentSessionSigner = sessionSigner;
 
             return {
                 signer: sessionSigner,
-                openTx,
+                openTx: openResult.context.signature,
                 swigRoleId,
             };
         },
@@ -426,7 +261,7 @@ async function createSwigHarness(parameters: {
                 throw new Error('No active Swig session signer');
             }
 
-            swig = await (fetchSwig as any)(rpc, swigAddress);
+            swig = await (fetchSwig as any)(client.rpc, swigAddress);
 
             const innerInstructions = [
                 getTransferSolInstruction({
@@ -440,17 +275,16 @@ async function createSwigHarness(parameters: {
                 payer: currentSessionSigner.address,
             });
 
-            return await sendInstructions({
-                rpc,
-                feePayer: currentSessionSigner,
-                instructions: signInstructions,
-            });
+            const sessionClient = await createTestClient(currentSessionSigner);
+            const result = await sessionClient.sendTransaction(signInstructions);
+            return result.context.signature;
         },
     };
 }
 
 // ── Test state ──
 
+let client: TestClient;
 let clientSigner: GeneratedSigner;
 let recipientSigner: GeneratedSigner;
 let server: http.Server;
@@ -468,8 +302,11 @@ beforeAll(async () => {
     clientSigner = await generateKeyPairSigner();
     recipientSigner = await generateKeyPairSigner();
 
+    // Create kit client with systemProgram plugin
+    client = await createTestClient(clientSigner);
+
     // Fund the client with 10 SOL
-    await airdrop(clientSigner.address, 10_000_000_000);
+    await client.airdrop(clientSigner.address, lamports(10_000_000_000n));
 
     // Start a test HTTP server with the mppx charge handler
     // secretKey is required by mppx for signing challenge tokens
@@ -541,7 +378,7 @@ test('e2e: native SOL charge via pull mode (default)', async () => {
 
     const mppx = ClientMppx.create({ methods: [clientMethod] });
 
-    const balanceBefore = await getBalance(recipientSigner.address);
+    const balanceBefore = await getBalance(client, recipientSigner.address);
 
     const response = await mppx.fetch(`http://localhost:${serverPort}/test`);
     const data = await response.json();
@@ -555,9 +392,9 @@ test('e2e: native SOL charge via pull mode (default)', async () => {
     expect(events).toContain('signed');
 
     // Verify recipient received payment
-    const balanceAfter = await getBalance(recipientSigner.address);
+    const balanceAfter = await getBalance(client, recipientSigner.address);
     expect(balanceAfter).toBeGreaterThan(balanceBefore);
-    expect(balanceAfter - balanceBefore).toBeGreaterThanOrEqual(1_000_000);
+    expect(balanceAfter - balanceBefore).toBeGreaterThanOrEqual(1_000_000n);
 });
 
 test('e2e: native SOL charge via push mode', async () => {
@@ -625,7 +462,7 @@ test('e2e: receipt header is present on success', async () => {
 test('e2e: fee payer mode — server co-signs and pays fees', async () => {
     // Generate a dedicated fee payer keypair for the server
     const feePayerSigner = await generateKeyPairSigner();
-    await airdrop(feePayerSigner.address, 10_000_000_000); // Fund fee payer
+    await client.airdrop(feePayerSigner.address, lamports(10_000_000_000n));
 
     const secretKey = 'test-secret-key-feepayer';
 
@@ -670,7 +507,7 @@ test('e2e: fee payer mode — server co-signs and pays fees', async () => {
     });
 
     try {
-        const clientBalanceBefore = await getBalance(clientSigner.address);
+        const clientBalanceBefore = await getBalance(client, clientSigner.address);
 
         const clientMethod = clientSolana.charge({
             signer: clientSigner,
@@ -687,12 +524,12 @@ test('e2e: fee payer mode — server co-signs and pays fees', async () => {
 
         // Client should have paid exactly 1_000_000 lamports for the transfer,
         // but NOT the tx fee (the fee payer covered that).
-        const clientBalanceAfter = await getBalance(clientSigner.address);
+        const clientBalanceAfter = await getBalance(client, clientSigner.address);
         const clientSpent = clientBalanceBefore - clientBalanceAfter;
 
         // The client should have spent exactly the transfer amount (1_000_000 lamports).
         // Without fee payer, they'd also spend ~5000 lamports for the tx fee.
-        expect(clientSpent).toBe(1_000_000);
+        expect(clientSpent).toBe(1_000_000n);
     } finally {
         fpServer.close();
     }
@@ -917,7 +754,7 @@ test('e2e: session close action returns 204 and next request opens a new channel
 test('e2e: session swig_session mode uses on-chain setup and enforces spend limit', async () => {
     const spendLimitLamports = 800n;
     const swig = await createSwigHarness({
-        walletSigner: clientSigner,
+        client,
         spendLimitLamports,
         sessionTtlSeconds: 120,
     });
@@ -939,7 +776,7 @@ test('e2e: session swig_session mode uses on-chain setup and enforces spend limi
         transactionVerifier: {
             async verifyOpen(_channelId, openTx) {
                 verifiedOpenTx = openTx;
-                const tx = await getConfirmedTransaction(openTx);
+                const tx = await getConfirmedTransaction(client, openTx);
                 expect(tx).toBeTruthy();
             },
         },
@@ -1002,18 +839,18 @@ test('e2e: session swig_session mode uses on-chain setup and enforces spend limi
         expect(channel!.lastAuthorizedAmount).toBe('10');
         expect(channel!.lastSequence).toBe(1);
 
-        const recipientBalanceBefore = await getBalance(recipientSigner.address);
+        const recipientBalanceBefore = await getBalance(client, recipientSigner.address);
 
         const withinLimitSignature = await swig.spendFromSwig(500n, recipientSigner.address);
-        const withinLimitTx = await getConfirmedTransaction(withinLimitSignature);
+        const withinLimitTx = await getConfirmedTransaction(client, withinLimitSignature);
         expect(withinLimitTx).toBeTruthy();
 
-        const recipientBalanceAfter = await getBalance(recipientSigner.address);
-        expect(recipientBalanceAfter - recipientBalanceBefore).toBeGreaterThanOrEqual(500);
+        const recipientBalanceAfter = await getBalance(client, recipientSigner.address);
+        expect(recipientBalanceAfter - recipientBalanceBefore).toBeGreaterThanOrEqual(500n);
 
         await expect(async () => {
             await swig.spendFromSwig(900n, recipientSigner.address);
-        }).rejects.toThrow(/Transaction simulation failed/);
+        }).rejects.toThrow(/Failed to send transaction|Transaction simulation failed/);
     } finally {
         await harness.close();
     }
@@ -1021,7 +858,7 @@ test('e2e: session swig_session mode uses on-chain setup and enforces spend limi
 
 test('e2e: session close can include on-chain settlement transaction', async () => {
     const swig = await createSwigHarness({
-        walletSigner: clientSigner,
+        client,
         spendLimitLamports: 2_000n,
         sessionTtlSeconds: 120,
     });
@@ -1043,7 +880,7 @@ test('e2e: session close can include on-chain settlement transaction', async () 
         transactionVerifier: {
             async verifyClose(_channelId, closeTx) {
                 verifiedCloseTx = closeTx;
-                const tx = await getConfirmedTransaction(closeTx);
+                const tx = await getConfirmedTransaction(client, closeTx);
                 expect(tx).toBeTruthy();
             },
         },
@@ -1093,7 +930,7 @@ test('e2e: session close can include on-chain settlement transaction', async () 
         const updateResponse = await mppx.fetch(endpoint);
         expect(updateResponse.status).toBe(200);
 
-        const recipientBalanceBeforeClose = await getBalance(recipientSigner.address);
+        const recipientBalanceBeforeClose = await getBalance(client, recipientSigner.address);
 
         const closeResponse = await mppx.fetch(endpoint, {
             context: { action: 'close' },
@@ -1101,8 +938,8 @@ test('e2e: session close can include on-chain settlement transaction', async () 
         expect(closeResponse.status).toBe(204);
         expect(verifiedCloseTx).toBeTruthy();
 
-        const recipientBalanceAfterClose = await getBalance(recipientSigner.address);
-        expect(recipientBalanceAfterClose - recipientBalanceBeforeClose).toBeGreaterThanOrEqual(10);
+        const recipientBalanceAfterClose = await getBalance(client, recipientSigner.address);
+        expect(recipientBalanceAfterClose - recipientBalanceBeforeClose).toBeGreaterThanOrEqual(10n);
     } finally {
         await harness.close();
     }
@@ -1111,7 +948,7 @@ test('e2e: session close can include on-chain settlement transaction', async () 
 test('e2e: session regular_budget mode enforces on-chain Swig role limits', async () => {
     const swigSpendLimitLamports = 700n;
     const swig = await createSwigHarness({
-        walletSigner: clientSigner,
+        client,
         spendLimitLamports: swigSpendLimitLamports,
         sessionTtlSeconds: 120,
     });
@@ -1133,7 +970,7 @@ test('e2e: session regular_budget mode enforces on-chain Swig role limits', asyn
         transactionVerifier: {
             async verifyOpen(_channelId, openTx) {
                 verifiedOpenTx = openTx;
-                const tx = await getConfirmedTransaction(openTx);
+                const tx = await getConfirmedTransaction(client, openTx);
                 expect(tx).toBeTruthy();
             },
         },
@@ -1150,12 +987,12 @@ test('e2e: session regular_budget mode enforces on-chain Swig role limits', asyn
             },
             buildOpenTx: async () =>
                 await sendMarkerTransfer({
-                    signer: clientSigner,
+                    client,
                     destination: recipientSigner.address,
                 }),
             buildTopupTx: async () =>
                 await sendMarkerTransfer({
-                    signer: clientSigner,
+                    client,
                     destination: recipientSigner.address,
                 }),
         });
@@ -1197,7 +1034,7 @@ test('e2e: session regular_budget mode enforces on-chain Swig role limits', asyn
 
 test('e2e: session swig_session mode rejects delegated signer not present on-chain', async () => {
     const swig = await createSwigHarness({
-        walletSigner: clientSigner,
+        client,
         spendLimitLamports: 500n,
         sessionTtlSeconds: 120,
     });
@@ -1258,7 +1095,7 @@ test('e2e: session swig_session mode rejects delegated signer not present on-cha
 
 test('e2e: session regular_budget mode rejects unknown configured Swig role', async () => {
     const swig = await createSwigHarness({
-        walletSigner: clientSigner,
+        client,
         spendLimitLamports: 500n,
         sessionTtlSeconds: 120,
     });
@@ -1289,12 +1126,12 @@ test('e2e: session regular_budget mode rejects unknown configured Swig role', as
             },
             buildOpenTx: async () =>
                 await sendMarkerTransfer({
-                    signer: clientSigner,
+                    client,
                     destination: recipientSigner.address,
                 }),
             buildTopupTx: async () =>
                 await sendMarkerTransfer({
-                    signer: clientSigner,
+                    client,
                     destination: recipientSigner.address,
                 }),
         });
