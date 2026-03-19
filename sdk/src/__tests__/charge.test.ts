@@ -5,8 +5,7 @@
  * - Push mode (type="signature"): server fetches + verifies on-chain
  * - Pull mode (type="transaction"): server broadcasts, confirms, then verifies on-chain
  */
-import { test, beforeEach, afterEach, mock } from 'node:test';
-import assert from 'node:assert/strict';
+import { test, expect, beforeEach, afterEach } from 'vitest';
 import { Store } from 'mppx/server';
 import { findAssociatedTokenPda } from '@solana-program/token';
 import { address } from '@solana/kit';
@@ -163,27 +162,25 @@ afterEach(() => {
 // ── Parameter validation ──
 
 test('charge() throws when splToken is set but decimals is missing', () => {
-    assert.throws(
-        () =>
-            charge({
-                recipient: RECIPIENT,
-                splToken: USDC_MINT,
-                // decimals intentionally omitted
-                network: 'devnet',
-                store,
-            }),
-        /decimals is required/,
-    );
+    expect(() =>
+        charge({
+            recipient: RECIPIENT,
+            splToken: USDC_MINT,
+            // decimals intentionally omitted
+            network: 'devnet',
+            store,
+        }),
+    ).toThrow(/decimals is required/);
 });
 
 test('charge() does not throw for native SOL (no splToken)', () => {
-    assert.doesNotThrow(() =>
+    expect(() =>
         charge({
             recipient: RECIPIENT,
             network: 'devnet',
             store,
         }),
-    );
+    ).not.toThrow();
 });
 
 // ── Request generation ──
@@ -213,14 +210,14 @@ test('request() generates a unique reference and populates fields', async () => 
         request: { amount: '500000', currency: 'USDC', recipient: '', methodDetails: stub },
     });
 
-    assert.equal(request1.recipient, RECIPIENT);
-    assert.equal(request1.methodDetails.network, 'devnet');
-    assert.equal(request1.methodDetails.splToken, USDC_MINT);
-    assert.equal(request1.methodDetails.decimals, 6);
-    assert.ok(request1.methodDetails.reference, 'reference should be set');
-    assert.ok(request1.methodDetails.recentBlockhash, 'recentBlockhash should be set');
+    expect(request1.recipient).toBe(RECIPIENT);
+    expect(request1.methodDetails.network).toBe('devnet');
+    expect(request1.methodDetails.splToken).toBe(USDC_MINT);
+    expect(request1.methodDetails.decimals).toBe(6);
+    expect(request1.methodDetails.reference).toBeTruthy();
+    expect(request1.methodDetails.recentBlockhash).toBeTruthy();
     // Each call generates a fresh reference
-    assert.notEqual(request1.methodDetails.reference, request2.methodDetails.reference);
+    expect(request1.methodDetails.reference).not.toBe(request2.methodDetails.reference);
 });
 
 test('request() returns the challenge request when credential is present', async () => {
@@ -245,13 +242,11 @@ test('request() returns the challenge request when credential is present', async
         request: { amount: '1000000', currency: 'SOL', recipient: '', methodDetails: { reference: '' } },
     });
 
-    assert.equal(result.methodDetails.reference, 'existing-ref');
+    expect(result.methodDetails.reference).toBe('existing-ref');
 });
 
 // ══════════════════════════════════════════════════════════════════════
-// ══════════════════════════════════════════════════════════════════════
 // Push mode (type="signature")
-// ══════════════════════════════════════════════════════════════════════
 // ══════════════════════════════════════════════════════════════════════
 
 // ── Native SOL verification ──
@@ -271,8 +266,8 @@ test('signature: accepts valid native SOL transfer', async () => {
         request: {} as any,
     });
 
-    assert.equal(receipt.status, 'success');
-    assert.equal(receipt.reference, SIGNATURE);
+    expect(receipt.status).toBe('success');
+    expect(receipt.reference).toBe(SIGNATURE);
 });
 
 test('signature: rejects SOL transfer with wrong recipient', async () => {
@@ -285,14 +280,12 @@ test('signature: rejects SOL transfer with wrong recipient', async () => {
 
     globalThis.fetch = async () => rpcSuccess(solTransferTx('WrongRecipient111111111111111111111', 1000000));
 
-    await assert.rejects(
-        () =>
-            method.verify({
-                credential: signatureCredential(SIGNATURE, { amount: '1000000' }),
-                request: {} as any,
-            }),
-        /Recipient mismatch/,
-    );
+    await expect(
+        method.verify({
+            credential: signatureCredential(SIGNATURE, { amount: '1000000' }),
+            request: {} as any,
+        }),
+    ).rejects.toThrow(/Recipient mismatch/);
 });
 
 test('signature: rejects SOL transfer with wrong amount', async () => {
@@ -305,14 +298,12 @@ test('signature: rejects SOL transfer with wrong amount', async () => {
 
     globalThis.fetch = async () => rpcSuccess(solTransferTx(RECIPIENT, 500000));
 
-    await assert.rejects(
-        () =>
-            method.verify({
-                credential: signatureCredential(SIGNATURE, { amount: '1000000' }),
-                request: {} as any,
-            }),
-        /Amount mismatch/,
-    );
+    await expect(
+        method.verify({
+            credential: signatureCredential(SIGNATURE, { amount: '1000000' }),
+            request: {} as any,
+        }),
+    ).rejects.toThrow(/Amount mismatch/);
 });
 
 // ── SPL token verification ──
@@ -344,8 +335,8 @@ test('signature: accepts valid SPL token transfer', async () => {
         request: {} as any,
     });
 
-    assert.equal(receipt.status, 'success');
-    assert.equal(receipt.reference, SIGNATURE);
+    expect(receipt.status).toBe('success');
+    expect(receipt.reference).toBe(SIGNATURE);
 });
 
 test('signature: rejects SPL transfer with wrong mint', async () => {
@@ -367,18 +358,16 @@ test('signature: rejects SPL transfer with wrong mint', async () => {
     const WRONG_MINT = 'So11111111111111111111111111111111111111112';
     globalThis.fetch = async () => rpcSuccess(splTransferTx(expectedAta, WRONG_MINT, '1000000'));
 
-    await assert.rejects(
-        () =>
-            method.verify({
-                credential: signatureCredential(SIGNATURE, {
-                    amount: '1000000',
-                    splToken: USDC_MINT,
-                    decimals: 6,
-                }),
-                request: {} as any,
+    await expect(
+        method.verify({
+            credential: signatureCredential(SIGNATURE, {
+                amount: '1000000',
+                splToken: USDC_MINT,
+                decimals: 6,
             }),
-        /Token mint mismatch/,
-    );
+            request: {} as any,
+        }),
+    ).rejects.toThrow(/Token mint mismatch/);
 });
 
 test('signature: rejects SPL transfer with wrong amount', async () => {
@@ -399,18 +388,16 @@ test('signature: rejects SPL transfer with wrong amount', async () => {
 
     globalThis.fetch = async () => rpcSuccess(splTransferTx(expectedAta, USDC_MINT, '500000'));
 
-    await assert.rejects(
-        () =>
-            method.verify({
-                credential: signatureCredential(SIGNATURE, {
-                    amount: '1000000',
-                    splToken: USDC_MINT,
-                    decimals: 6,
-                }),
-                request: {} as any,
+    await expect(
+        method.verify({
+            credential: signatureCredential(SIGNATURE, {
+                amount: '1000000',
+                splToken: USDC_MINT,
+                decimals: 6,
             }),
-        /Amount mismatch/,
-    );
+            request: {} as any,
+        }),
+    ).rejects.toThrow(/Amount mismatch/);
 });
 
 test('signature: rejects SPL transfer with wrong destination ATA', async () => {
@@ -426,18 +413,16 @@ test('signature: rejects SPL transfer with wrong destination ATA', async () => {
     const WRONG_ATA = 'WrongATA11111111111111111111111111111111111';
     globalThis.fetch = async () => rpcSuccess(splTransferTx(WRONG_ATA, USDC_MINT, '1000000'));
 
-    await assert.rejects(
-        () =>
-            method.verify({
-                credential: signatureCredential(SIGNATURE, {
-                    amount: '1000000',
-                    splToken: USDC_MINT,
-                    decimals: 6,
-                }),
-                request: {} as any,
+    await expect(
+        method.verify({
+            credential: signatureCredential(SIGNATURE, {
+                amount: '1000000',
+                splToken: USDC_MINT,
+                decimals: 6,
             }),
-        /Destination token account does not belong to expected recipient/,
-    );
+            request: {} as any,
+        }),
+    ).rejects.toThrow(/Destination token account does not belong to expected recipient/);
 });
 
 // ── Replay prevention (type="signature") ──
@@ -459,14 +444,12 @@ test('signature: rejects already-consumed transaction signature', async () => {
     });
 
     // Second call with same signature is rejected
-    await assert.rejects(
-        () =>
-            method.verify({
-                credential: signatureCredential(SIGNATURE, { amount: '1000000' }),
-                request: {} as any,
-            }),
-        /already consumed/,
-    );
+    await expect(
+        method.verify({
+            credential: signatureCredential(SIGNATURE, { amount: '1000000' }),
+            request: {} as any,
+        }),
+    ).rejects.toThrow(/already consumed/);
 });
 
 // ── RPC error handling (type="signature") ──
@@ -481,14 +464,12 @@ test('signature: throws when transaction is not found', async () => {
 
     globalThis.fetch = async () => rpcSuccess(null);
 
-    await assert.rejects(
-        () =>
-            method.verify({
-                credential: signatureCredential(SIGNATURE, { amount: '1000000' }),
-                request: {} as any,
-            }),
-        /Transaction not found/,
-    );
+    await expect(
+        method.verify({
+            credential: signatureCredential(SIGNATURE, { amount: '1000000' }),
+            request: {} as any,
+        }),
+    ).rejects.toThrow(/Transaction not found/);
 });
 
 test('signature: throws when transaction failed on-chain', async () => {
@@ -505,14 +486,12 @@ test('signature: throws when transaction failed on-chain', async () => {
             transaction: { message: { instructions: [] } },
         });
 
-    await assert.rejects(
-        () =>
-            method.verify({
-                credential: signatureCredential(SIGNATURE, { amount: '1000000' }),
-                request: {} as any,
-            }),
-        /Transaction failed on-chain/,
-    );
+    await expect(
+        method.verify({
+            credential: signatureCredential(SIGNATURE, { amount: '1000000' }),
+            request: {} as any,
+        }),
+    ).rejects.toThrow(/Transaction failed on-chain/);
 });
 
 test('signature: throws on RPC error response', async () => {
@@ -525,14 +504,12 @@ test('signature: throws on RPC error response', async () => {
 
     globalThis.fetch = async () => rpcError('Transaction version not supported');
 
-    await assert.rejects(
-        () =>
-            method.verify({
-                credential: signatureCredential(SIGNATURE, { amount: '1000000' }),
-                request: {} as any,
-            }),
-        /RPC error/,
-    );
+    await expect(
+        method.verify({
+            credential: signatureCredential(SIGNATURE, { amount: '1000000' }),
+            request: {} as any,
+        }),
+    ).rejects.toThrow(/RPC error/);
 });
 
 test('signature: throws when no transfer instruction found (SOL)', async () => {
@@ -549,14 +526,12 @@ test('signature: throws when no transfer instruction found (SOL)', async () => {
             transaction: { message: { instructions: [] } },
         });
 
-    await assert.rejects(
-        () =>
-            method.verify({
-                credential: signatureCredential(SIGNATURE, { amount: '1000000' }),
-                request: {} as any,
-            }),
-        /No system transfer instruction found/,
-    );
+    await expect(
+        method.verify({
+            credential: signatureCredential(SIGNATURE, { amount: '1000000' }),
+            request: {} as any,
+        }),
+    ).rejects.toThrow(/No system transfer instruction found/);
 });
 
 test('signature: throws when no TransferChecked instruction found (SPL)', async () => {
@@ -575,18 +550,16 @@ test('signature: throws when no TransferChecked instruction found (SPL)', async 
             transaction: { message: { instructions: [] } },
         });
 
-    await assert.rejects(
-        () =>
-            method.verify({
-                credential: signatureCredential(SIGNATURE, {
-                    amount: '1000000',
-                    splToken: USDC_MINT,
-                    decimals: 6,
-                }),
-                request: {} as any,
+    await expect(
+        method.verify({
+            credential: signatureCredential(SIGNATURE, {
+                amount: '1000000',
+                splToken: USDC_MINT,
+                decimals: 6,
             }),
-        /No TransferChecked instruction found/,
-    );
+            request: {} as any,
+        }),
+    ).rejects.toThrow(/No TransferChecked instruction found/);
 });
 
 // ══════════════════════════════════════════════════════════════════════
@@ -642,8 +615,8 @@ test('pull: accepts valid native SOL transfer', async () => {
         request: {} as any,
     });
 
-    assert.equal(receipt.status, 'success');
-    assert.equal(receipt.reference, SIGNATURE);
+    expect(receipt.status).toBe('success');
+    expect(receipt.reference).toBe(SIGNATURE);
 });
 
 test('pull: accepts valid SPL token transfer', async () => {
@@ -673,8 +646,8 @@ test('pull: accepts valid SPL token transfer', async () => {
         request: {} as any,
     });
 
-    assert.equal(receipt.status, 'success');
-    assert.equal(receipt.reference, SIGNATURE);
+    expect(receipt.status).toBe('success');
+    expect(receipt.reference).toBe(SIGNATURE);
 });
 
 test('transaction: rejects when sendTransaction fails', async () => {
@@ -687,14 +660,12 @@ test('transaction: rejects when sendTransaction fails', async () => {
 
     globalThis.fetch = async () => rpcError('Transaction simulation failed');
 
-    await assert.rejects(
-        () =>
-            method.verify({
-                credential: transactionCredential(FAKE_TX_BASE64, { amount: '1000000' }),
-                request: {} as any,
-            }),
-        /RPC error/,
-    );
+    await expect(
+        method.verify({
+            credential: transactionCredential(FAKE_TX_BASE64, { amount: '1000000' }),
+            request: {} as any,
+        }),
+    ).rejects.toThrow(/RPC error/);
 });
 
 test('transaction: rejects when on-chain verification fails (wrong recipient)', async () => {
@@ -707,14 +678,12 @@ test('transaction: rejects when on-chain verification fails (wrong recipient)', 
 
     mockServerBroadcastFetch(solTransferTx('WrongRecipient111111111111111111111', 1000000));
 
-    await assert.rejects(
-        () =>
-            method.verify({
-                credential: transactionCredential(FAKE_TX_BASE64, { amount: '1000000' }),
-                request: {} as any,
-            }),
-        /Recipient mismatch/,
-    );
+    await expect(
+        method.verify({
+            credential: transactionCredential(FAKE_TX_BASE64, { amount: '1000000' }),
+            request: {} as any,
+        }),
+    ).rejects.toThrow(/Recipient mismatch/);
 });
 
 test('transaction: throws when transaction data is missing', async () => {
@@ -725,25 +694,23 @@ test('transaction: throws when transaction data is missing', async () => {
         store,
     });
 
-    await assert.rejects(
-        () =>
-            method.verify({
-                credential: {
-                    payload: { type: 'transaction' },
-                    challenge: {
-                        request: {
-                            amount: '1000000',
-                            currency: 'SOL',
-                            recipient: RECIPIENT,
-                            methodDetails: {
-                                reference: 'ref-1',
-                                network: 'devnet',
-                            },
+    await expect(
+        method.verify({
+            credential: {
+                payload: { type: 'transaction' },
+                challenge: {
+                    request: {
+                        amount: '1000000',
+                        currency: 'SOL',
+                        recipient: RECIPIENT,
+                        methodDetails: {
+                            reference: 'ref-1',
+                            network: 'devnet',
                         },
                     },
-                } as any,
-                request: {} as any,
-            }),
-        /Missing transaction data/,
-    );
+                },
+            } as any,
+            request: {} as any,
+        }),
+    ).rejects.toThrow(/Missing transaction data/);
 });

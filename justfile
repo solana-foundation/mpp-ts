@@ -3,6 +3,10 @@ set shell := ["bash", "-uc"]
 default:
     @just --list
 
+# Audit production dependencies for vulnerabilities
+audit:
+    pnpm audit --production
+
 # Format and lint
 fmt:
     pnpm lint:fix
@@ -27,5 +31,5 @@ test-integration:
 # All tests
 test-all: test test-integration
 
-# Pre-commit: fmt + typecheck + unit tests
-pre-commit: fmt typecheck test
+# Pre-commit: audit + fmt + typecheck + unit tests
+pre-commit: audit fmt typecheck test

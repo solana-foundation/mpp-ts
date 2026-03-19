@@ -1,5 +1,4 @@
-import { test } from 'node:test';
-import assert from 'node:assert/strict';
+import { test, expect } from 'vitest';
 import {
     generateKeyPairSigner,
     pipe,
@@ -64,15 +63,15 @@ test('coSignBase64Transaction co-signs with a valid TransactionPartialSigner', a
 
     const result = await coSignBase64Transaction(feePayer, base64Tx);
 
-    assert.ok(typeof result === 'string' && result.length > 0);
-    assert.notEqual(result, base64Tx, 'co-signed tx should differ from input');
+    expect(typeof result === 'string' && result.length > 0).toBeTruthy();
+    expect(result).not.toBe(base64Tx);
 
     // Verify the fee payer signature is present in the decoded transaction
     const txBytes = getBase64Codec().encode(result);
     const decoded = getTransactionDecoder().decode(txBytes);
     const feePayerSig = decoded.signatures[feePayer.address];
-    assert.ok(feePayerSig, 'fee payer signature should be present');
-    assert.notEqual(feePayerSig, new Uint8Array(64), 'fee payer signature should not be empty bytes');
+    expect(feePayerSig).toBeTruthy();
+    expect(feePayerSig).not.toEqual(new Uint8Array(64));
 });
 
 test('coSignBase64Transaction preserves existing signatures', async () => {
@@ -82,12 +81,12 @@ test('coSignBase64Transaction preserves existing signatures', async () => {
 
     // Decode and verify both sender and fee payer signatures are present
     const decoded = getTransactionDecoder().decode(getBase64Codec().encode(result));
-    assert.ok(decoded.signatures[feePayer.address], 'fee payer sig should be present');
-    assert.ok(decoded.signatures[sender.address], 'sender sig should be preserved');
+    expect(decoded.signatures[feePayer.address]).toBeTruthy();
+    expect(decoded.signatures[sender.address]).toBeTruthy();
 });
 
 test('coSignBase64Transaction throws on invalid base64 input', async () => {
     const feePayer = await generateKeyPairSigner();
 
-    await assert.rejects(() => coSignBase64Transaction(feePayer, 'not-valid-base64!!!'));
+    await expect(coSignBase64Transaction(feePayer, 'not-valid-base64!!!')).rejects.toThrow();
 });

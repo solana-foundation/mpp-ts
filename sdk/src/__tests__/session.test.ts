@@ -1,5 +1,4 @@
-import { test, beforeEach, afterEach } from 'node:test';
-import assert from 'node:assert/strict';
+import { test, expect, beforeEach, afterEach } from 'vitest';
 import { generateKeyPairSigner } from '@solana/kit';
 import { Store } from 'mppx/server';
 import { session } from '../server/Session.js';
@@ -83,17 +82,15 @@ afterEach(() => {
 });
 
 test('session() throws when asset is spl without mint', () => {
-    assert.throws(
-        () =>
-            session({
-                recipient: RECIPIENT,
-                network: NETWORK,
-                asset: { kind: 'spl', decimals: 6 },
-                channelProgram: CHANNEL_PROGRAM,
-                store,
-            }),
-        /asset\.mint is required/,
-    );
+    expect(() =>
+        session({
+            recipient: RECIPIENT,
+            network: NETWORK,
+            asset: { kind: 'spl', decimals: 6 },
+            channelProgram: CHANNEL_PROGRAM,
+            store,
+        }),
+    ).toThrow(/asset\.mint is required/);
 });
 
 test('request() populates recipient/network/asset/channel metadata', async () => {
@@ -129,21 +126,21 @@ test('request() populates recipient/network/asset/channel metadata', async () =>
         },
     });
 
-    assert.equal(request.recipient, RECIPIENT);
-    assert.equal(request.network, NETWORK);
-    assert.deepEqual(request.asset, { kind: 'sol', decimals: 9, symbol: 'SOL' });
-    assert.equal(request.channelProgram, CHANNEL_PROGRAM);
-    assert.deepEqual(request.pricing, {
+    expect(request.recipient).toBe(RECIPIENT);
+    expect(request.network).toBe(NETWORK);
+    expect(request.asset).toEqual({ kind: 'sol', decimals: 9, symbol: 'SOL' });
+    expect(request.channelProgram).toBe(CHANNEL_PROGRAM);
+    expect(request.pricing).toEqual({
         unit: 'request',
         amountPerUnit: '10',
         meter: 'api_calls',
         minDebit: '5',
     });
-    assert.deepEqual(request.sessionDefaults, {
+    expect(request.sessionDefaults).toEqual({
         suggestedDeposit: '1000',
         ttlSeconds: 60,
     });
-    assert.deepEqual(request.verifier, {
+    expect(request.verifier).toEqual({
         acceptAuthorizationModes: ['regular_unbounded'],
         maxClockSkewSeconds: 10,
     });
@@ -172,7 +169,7 @@ test('request() returns challenge request when credential is present', async () 
         },
     });
 
-    assert.deepEqual(request, challengeRequest);
+    expect(request).toEqual(challengeRequest);
 });
 
 test('open flow creates channel state and returns success receipt', async () => {
@@ -191,16 +188,16 @@ test('open flow creates channel state and returns success receipt', async () => 
         request: buildChallengeRequest(),
     });
 
-    assert.equal(receipt.status, 'success');
-    assert.equal(receipt.reference, channelId);
+    expect(receipt.status).toBe('success');
+    expect(receipt.reference).toBe(channelId);
 
     const channel = await getChannel(channelId);
-    assert.ok(channel);
-    assert.equal(channel!.status, 'open');
-    assert.equal(channel!.escrowedAmount, '1000');
-    assert.equal(channel!.lastAuthorizedAmount, '0');
-    assert.equal(channel!.lastSequence, 0);
-    assert.equal(channel!.recipient, RECIPIENT);
+    expect(channel).toBeTruthy();
+    expect(channel!.status).toBe('open');
+    expect(channel!.escrowedAmount).toBe('1000');
+    expect(channel!.lastAuthorizedAmount).toBe('0');
+    expect(channel!.lastSequence).toBe(0);
+    expect(channel!.recipient).toBe(RECIPIENT);
 
     const response = await method.respond!({
         credential,
@@ -208,7 +205,7 @@ test('open flow creates channel state and returns success receipt', async () => 
         receipt,
         input: new Request('http://localhost'),
     });
-    assert.equal(response, undefined);
+    expect(response).toBeUndefined();
 });
 
 test('update flow enforces monotonic cumulative amount and sequence', async () => {
@@ -238,13 +235,13 @@ test('update flow enforces monotonic cumulative amount and sequence', async () =
         request: buildChallengeRequest(),
     });
 
-    assert.equal(firstUpdate.status, 'success');
-    assert.equal(firstUpdate.reference, channelId);
+    expect(firstUpdate.status).toBe('success');
+    expect(firstUpdate.reference).toBe(channelId);
 
     const channelAfterFirst = await getChannel(channelId);
-    assert.ok(channelAfterFirst);
-    assert.equal(channelAfterFirst!.lastAuthorizedAmount, '300');
-    assert.equal(channelAfterFirst!.lastSequence, 1);
+    expect(channelAfterFirst).toBeTruthy();
+    expect(channelAfterFirst!.lastAuthorizedAmount).toBe('300');
+    expect(channelAfterFirst!.lastSequence).toBe(1);
 
     const replayCredential = await buildUpdateCredential({
         channelId,
@@ -253,14 +250,12 @@ test('update flow enforces monotonic cumulative amount and sequence', async () =
         sequence: 1,
     });
 
-    await assert.rejects(
-        () =>
-            method.verify({
-                credential: replayCredential,
-                request: buildChallengeRequest(),
-            }),
-        /replay detected/,
-    );
+    await expect(
+        method.verify({
+            credential: replayCredential,
+            request: buildChallengeRequest(),
+        }),
+    ).rejects.toThrow(/replay detected/);
 
     const nonMonotonicCredential = await buildUpdateCredential({
         channelId,
@@ -269,14 +264,12 @@ test('update flow enforces monotonic cumulative amount and sequence', async () =
         sequence: 2,
     });
 
-    await assert.rejects(
-        () =>
-            method.verify({
-                credential: nonMonotonicCredential,
-                request: buildChallengeRequest(),
-            }),
-        /monotonically non-decreasing/,
-    );
+    await expect(
+        method.verify({
+            credential: nonMonotonicCredential,
+            request: buildChallengeRequest(),
+        }),
+    ).rejects.toThrow(/monotonically non-decreasing/);
 });
 
 test('topup flow updates escrowed deposit and respond() returns 204', async () => {
@@ -305,12 +298,12 @@ test('topup flow updates escrowed deposit and respond() returns 204', async () =
         request: buildChallengeRequest(),
     });
 
-    assert.equal(receipt.status, 'success');
-    assert.equal(receipt.reference, channelId);
+    expect(receipt.status).toBe('success');
+    expect(receipt.reference).toBe(channelId);
 
     const channel = await getChannel(channelId);
-    assert.ok(channel);
-    assert.equal(channel!.escrowedAmount, '1250');
+    expect(channel).toBeTruthy();
+    expect(channel!.escrowedAmount).toBe('1250');
 
     const response = await method.respond!({
         credential: topupCredential,
@@ -318,7 +311,7 @@ test('topup flow updates escrowed deposit and respond() returns 204', async () =
         receipt,
         input: new Request('http://localhost'),
     });
-    assert.equal(response?.status, 204);
+    expect(response?.status).toBe(204);
 });
 
 test('close flow marks channel as closed and respond() returns 204', async () => {
@@ -360,14 +353,14 @@ test('close flow marks channel as closed and respond() returns 204', async () =>
         request: buildChallengeRequest(),
     });
 
-    assert.equal(receipt.status, 'success');
-    assert.equal(receipt.reference, channelId);
+    expect(receipt.status).toBe('success');
+    expect(receipt.reference).toBe(channelId);
 
     const channel = await getChannel(channelId);
-    assert.ok(channel);
-    assert.equal(channel!.status, 'closed');
-    assert.equal(channel!.lastAuthorizedAmount, '450');
-    assert.equal(channel!.lastSequence, 2);
+    expect(channel).toBeTruthy();
+    expect(channel!.status).toBe('closed');
+    expect(channel!.lastAuthorizedAmount).toBe('450');
+    expect(channel!.lastSequence).toBe(2);
 
     const response = await method.respond!({
         credential: closeCredential,
@@ -375,7 +368,7 @@ test('close flow marks channel as closed and respond() returns 204', async () =>
         receipt,
         input: new Request('http://localhost'),
     });
-    assert.equal(response?.status, 204);
+    expect(response?.status).toBe(204);
 });
 
 test('rejects invalid voucher signature', async () => {
@@ -400,14 +393,12 @@ test('rejects invalid voucher signature', async () => {
         voucher: invalidVoucher,
     });
 
-    await assert.rejects(
-        () =>
-            method.verify({
-                credential: invalidOpenCredential,
-                request: buildChallengeRequest(),
-            }),
-        /Invalid voucher signature/,
-    );
+    await expect(
+        method.verify({
+            credential: invalidOpenCredential,
+            request: buildChallengeRequest(),
+        }),
+    ).rejects.toThrow(/Invalid voucher signature/);
 });
 
 test('accepts swig-session vouchers signed by delegated session key', async () => {
@@ -454,8 +445,8 @@ test('accepts swig-session vouchers signed by delegated session key', async () =
         request: buildChallengeRequest(),
     });
 
-    assert.equal(receipt.status, 'success');
-    assert.equal(receipt.reference, channelId);
+    expect(receipt.status).toBe('success');
+    expect(receipt.reference).toBe(channelId);
 });
 
 test('rejects swig-session voucher signed by wrong signer', async () => {
@@ -500,14 +491,12 @@ test('rejects swig-session voucher signed by wrong signer', async () => {
         }),
     });
 
-    await assert.rejects(
-        () =>
-            method.verify({
-                credential: wrongSignerCredential,
-                request: buildChallengeRequest(),
-            }),
-        /delegated session key/,
-    );
+    await expect(
+        method.verify({
+            credential: wrongSignerCredential,
+            request: buildChallengeRequest(),
+        }),
+    ).rejects.toThrow(/delegated session key/);
 });
 
 test('open flow supports configurable transactionVerifier callbacks', async () => {
@@ -527,14 +516,12 @@ test('open flow supports configurable transactionVerifier callbacks', async () =
         sequence: 0,
     });
 
-    await assert.rejects(
-        () =>
-            method.verify({
-                credential,
-                request: buildChallengeRequest(),
-            }),
-        /open transaction rejected by verifier/,
-    );
+    await expect(
+        method.verify({
+            credential,
+            request: buildChallengeRequest(),
+        }),
+    ).rejects.toThrow(/open transaction rejected by verifier/);
 });
 
 test('close flow supports configurable transactionVerifier callbacks', async () => {
@@ -585,9 +572,9 @@ test('close flow supports configurable transactionVerifier callbacks', async () 
         request: buildChallengeRequest(),
     });
 
-    assert.equal(receipt.reference, 'close-transaction-signature');
-    assert.equal(observedCloseTx, 'close-transaction-signature');
-    assert.equal(observedFinalCumulative, '450');
+    expect(receipt.reference).toBe('close-transaction-signature');
+    expect(observedCloseTx).toBe('close-transaction-signature');
+    expect(observedFinalCumulative).toBe('450');
 });
 
 test('close flow requires closeTx when verifyClose callback is configured', async () => {
@@ -621,19 +608,17 @@ test('close flow requires closeTx when verifyClose callback is configured', asyn
         request: buildChallengeRequest(),
     });
 
-    await assert.rejects(
-        async () =>
-            method.verify({
-                credential: await buildCloseCredential({
-                    channelId,
-                    serverNonce,
-                    cumulativeAmount: '450',
-                    sequence: 2,
-                }),
-                request: buildChallengeRequest(),
+    await expect(
+        method.verify({
+            credential: await buildCloseCredential({
+                channelId,
+                serverNonce,
+                cumulativeAmount: '450',
+                sequence: 2,
             }),
-        /closeTx is required/,
-    );
+            request: buildChallengeRequest(),
+        }),
+    ).rejects.toThrow(/closeTx is required/);
 });
 
 test('rejects update when cumulative amount exceeds deposit', async () => {
@@ -659,14 +644,12 @@ test('rejects update when cumulative amount exceeds deposit', async () => {
         sequence: 1,
     });
 
-    await assert.rejects(
-        () =>
-            method.verify({
-                credential: exceedsDepositCredential,
-                request: buildChallengeRequest(),
-            }),
-        /exceeds channel deposit/,
-    );
+    await expect(
+        method.verify({
+            credential: exceedsDepositCredential,
+            request: buildChallengeRequest(),
+        }),
+    ).rejects.toThrow(/exceeds channel deposit/);
 });
 
 test('rejects replay attempts using duplicate sequence', async () => {
@@ -702,14 +685,12 @@ test('rejects replay attempts using duplicate sequence', async () => {
         sequence: 1,
     });
 
-    await assert.rejects(
-        () =>
-            method.verify({
-                credential: replayUpdateCredential,
-                request: buildChallengeRequest(),
-            }),
-        /replay detected/,
-    );
+    await expect(
+        method.verify({
+            credential: replayUpdateCredential,
+            request: buildChallengeRequest(),
+        }),
+    ).rejects.toThrow(/replay detected/);
 });
 
 test('rejects voucher signed by unauthorized signer', async () => {
@@ -750,14 +731,12 @@ test('rejects voucher signed by unauthorized signer', async () => {
         voucher: rogueVoucher,
     });
 
-    await assert.rejects(
-        () =>
-            method.verify({
-                credential: rogueCredential,
-                request: buildChallengeRequest(),
-            }),
-        /does not match channel payer/,
-    );
+    await expect(
+        method.verify({
+            credential: rogueCredential,
+            request: buildChallengeRequest(),
+        }),
+    ).rejects.toThrow(/does not match channel payer/);
 });
 
 test('rejects actions after channel is closed', async () => {
@@ -793,14 +772,12 @@ test('rejects actions after channel is closed', async () => {
         sequence: 2,
     });
 
-    await assert.rejects(
-        () =>
-            method.verify({
-                credential: updateAfterCloseCredential,
-                request: buildChallengeRequest(),
-            }),
-        /closed/,
-    );
+    await expect(
+        method.verify({
+            credential: updateAfterCloseCredential,
+            request: buildChallengeRequest(),
+        }),
+    ).rejects.toThrow(/closed/);
 });
 
 function createMethod(overrides: Partial<session.Parameters> = {}) {
