@@ -75,6 +75,7 @@ export type SessionCredentialPayload =
   | {
       action: 'close'
       channelId: string
+      closeTx?: string
       voucher: SignedSessionVoucher
     }
 
@@ -148,6 +149,7 @@ export interface AuthorizeCloseInput {
 
 export interface AuthorizedClose {
   voucher: SignedSessionVoucher
+  closeTx?: string
 }
 
 export interface AuthorizerCapabilities {

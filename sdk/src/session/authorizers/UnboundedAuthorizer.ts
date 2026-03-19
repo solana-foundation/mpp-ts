@@ -27,6 +27,7 @@ export interface UnboundedAuthorizerParameters {
   >
   buildOpenTx?: (input: AuthorizeOpenInput) => Promise<string> | string
   buildTopupTx?: (input: AuthorizeTopupInput) => Promise<string> | string
+  buildCloseTx?: (input: AuthorizeCloseInput) => Promise<string> | string
 }
 
 export class UnboundedAuthorizer implements SessionAuthorizer {
@@ -39,6 +40,9 @@ export class UnboundedAuthorizer implements SessionAuthorizer {
   ) => Promise<string> | string
   private readonly buildTopupTx?: (
     input: AuthorizeTopupInput,
+  ) => Promise<string> | string
+  private readonly buildCloseTx?: (
+    input: AuthorizeCloseInput,
   ) => Promise<string> | string
   private readonly channels = new Map<string, ChannelProgress>()
   private readonly capabilities: AuthorizerCapabilities
@@ -55,6 +59,7 @@ export class UnboundedAuthorizer implements SessionAuthorizer {
         : undefined
     this.buildOpenTx = parameters.buildOpenTx
     this.buildTopupTx = parameters.buildTopupTx
+    this.buildCloseTx = parameters.buildCloseTx
 
     const requiresInteractiveApproval = {
       open: parameters.requiresInteractiveApproval?.open ?? false,
@@ -195,12 +200,17 @@ export class UnboundedAuthorizer implements SessionAuthorizer {
       channelProgram: input.channelProgram,
     })
 
+    const closeTx = await this.resolveCloseTx(input)
+
     this.channels.set(input.channelId, {
       lastCumulative: finalCumulativeAmount,
       lastSequence: input.sequence,
     })
 
-    return { voucher }
+    return {
+      voucher,
+      ...(closeTx ? { closeTx } : {}),
+    }
   }
 
   private assertNotExpired() {
@@ -264,6 +274,16 @@ export class UnboundedAuthorizer implements SessionAuthorizer {
     }
 
     return await this.buildTopupTx(input)
+  }
+
+  private async resolveCloseTx(
+    input: AuthorizeCloseInput,
+  ): Promise<string | undefined> {
+    if (!this.buildCloseTx) {
+      return undefined
+    }
+
+    return await this.buildCloseTx(input)
   }
 }
 

@@ -45,7 +45,7 @@ import {
 import * as SessionChannelStore from '../../src/session/ChannelStore.js'
 
 const RPC_URL = 'http://localhost:8899'
-const SESSION_CHANNEL_PROGRAM = 'Session11111111111111111111111111111111111'
+const SESSION_CHANNEL_PROGRAM = 'swigypWHEksbC64pWKwah1WTeh9JXwx8H1rJHLdbQMB'
 
 type GeneratedSigner = Awaited<ReturnType<typeof generateKeyPairSigner>>
 type SolanaRpcClient = ReturnType<typeof createSolanaRpc>
@@ -852,6 +852,54 @@ test('e2e: session autoTopup returns 204 management response, then resumes updat
   }
 })
 
+test('e2e: session can auto-close when limit is hit and autoTopup is disabled', async () => {
+  const harness = await startSessionHarness({
+    pricing: {
+      unit: 'request',
+      amountPerUnit: '10',
+      meter: 'api_calls',
+    },
+    sessionDefaults: {
+      suggestedDeposit: '10',
+      ttlSeconds: 60,
+    },
+  })
+
+  try {
+    const clientMethod = clientSolana.session({
+      signer: clientSigner,
+      authorizer: createUnboundedSessionAuthorizer(),
+      autoTopup: false,
+      settleOnLimitHit: true,
+    })
+
+    const mppx = ClientMppx.create({ methods: [clientMethod], polyfill: false })
+    const endpoint = `http://localhost:${harness.port}/session`
+
+    const openResponse = await mppx.fetch(endpoint)
+    assert.equal(openResponse.status, 200)
+    const channelId = receiptFromResponse(openResponse).reference
+
+    const updateResponse = await mppx.fetch(endpoint)
+    assert.equal(updateResponse.status, 200)
+    assert.equal(receiptFromResponse(updateResponse).reference, channelId)
+
+    const autoCloseResponse = await mppx.fetch(endpoint)
+    assert.equal(autoCloseResponse.status, 204)
+    assert.equal(receiptFromResponse(autoCloseResponse).reference, channelId)
+
+    const closedChannel = await getSessionChannel(harness.store, channelId)
+    assert.ok(closedChannel)
+    assert.equal(closedChannel!.status, 'closed')
+
+    const reopenedResponse = await mppx.fetch(endpoint)
+    assert.equal(reopenedResponse.status, 200)
+    assert.notEqual(receiptFromResponse(reopenedResponse).reference, channelId)
+  } finally {
+    await harness.close()
+  }
+})
+
 test('e2e: session close action returns 204 and next request opens a new channel', async () => {
   const harness = await startSessionHarness({
     pricing: {
@@ -1018,6 +1066,98 @@ test('e2e: session swig_session mode uses on-chain setup and enforces spend limi
       },
       /Transaction simulation failed/,
       'over-limit Swig spend should fail on-chain',
+    )
+  } finally {
+    await harness.close()
+  }
+})
+
+test('e2e: session close can include on-chain settlement transaction', async () => {
+  const swig = await createSwigHarness({
+    walletSigner: clientSigner,
+    spendLimitLamports: 2_000n,
+    sessionTtlSeconds: 120,
+  })
+
+  let verifiedCloseTx: string | null = null
+  const harness = await startSessionHarness({
+    pricing: {
+      unit: 'request',
+      amountPerUnit: '10',
+      meter: 'api_calls',
+    },
+    sessionDefaults: {
+      suggestedDeposit: '500',
+      ttlSeconds: 60,
+    },
+    verifier: {
+      acceptAuthorizationModes: ['swig_session'],
+    },
+    transactionVerifier: {
+      async verifyClose(_channelId, closeTx) {
+        verifiedCloseTx = closeTx
+        const tx = await getConfirmedTransaction(closeTx)
+        assert.ok(tx, 'closeTx should resolve to a confirmed on-chain transaction')
+      },
+    },
+  })
+
+  try {
+    const authorizer = new SwigSessionAuthorizer({
+      wallet: {
+        address: clientSigner.address,
+        swigAddress: swig.swigAddress,
+        swigRoleId: 0,
+        getSessionKey: async () => {
+          const signer = swig.getCurrentSessionSigner()
+          if (!signer) return null
+          return {
+            signer,
+            swigRoleId: 0,
+          }
+        },
+        createSessionKey: async ({ ttlSeconds }) => {
+          return await swig.createSessionKey(ttlSeconds)
+        },
+      },
+      policy: {
+        profile: 'swig-time-bound',
+        ttlSeconds: 60,
+        spendLimit: '2000',
+      },
+      rpcUrl: RPC_URL,
+      allowedPrograms: [SESSION_CHANNEL_PROGRAM],
+      buildCloseTx: async ({ finalCumulativeAmount, recipient }) =>
+        await swig.spendFromSwig(BigInt(finalCumulativeAmount), recipient),
+    })
+
+    const clientMethod = clientSolana.session({
+      signer: clientSigner,
+      authorizer,
+      autoTopup: false,
+    })
+
+    const mppx = ClientMppx.create({ methods: [clientMethod], polyfill: false })
+    const endpoint = `http://localhost:${harness.port}/session`
+
+    const openResponse = await mppx.fetch(endpoint)
+    assert.equal(openResponse.status, 200)
+
+    const updateResponse = await mppx.fetch(endpoint)
+    assert.equal(updateResponse.status, 200)
+
+    const recipientBalanceBeforeClose = await getBalance(recipientSigner.address)
+
+    const closeResponse = await mppx.fetch(endpoint, {
+      context: { action: 'close' },
+    })
+    assert.equal(closeResponse.status, 204)
+    assert.ok(verifiedCloseTx, 'transaction verifier should receive closeTx signature')
+
+    const recipientBalanceAfterClose = await getBalance(recipientSigner.address)
+    assert.ok(
+      recipientBalanceAfterClose - recipientBalanceBeforeClose >= 10,
+      'recipient should receive settlement transfer on close',
     )
   } finally {
     await harness.close()

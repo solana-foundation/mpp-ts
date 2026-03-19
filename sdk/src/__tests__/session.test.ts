@@ -12,7 +12,7 @@ import type {
 } from '../session/Types.js'
 
 const RECIPIENT = '9xAXssX9j7vuK99c7cFwqbixzL3bFrzPy9PUhCtDPAYJ'
-const CHANNEL_PROGRAM = 'Session11111111111111111111111111111111111'
+const CHANNEL_PROGRAM = 'swigypWHEksbC64pWKwah1WTeh9JXwx8H1rJHLdbQMB'
 const NETWORK = 'devnet'
 
 type ChallengeRequest = {
@@ -62,6 +62,7 @@ type CloseCredentialOptions = {
   serverNonce: string
   cumulativeAmount: string
   sequence: number
+  closeTx?: string
   challengeId?: string
   challengeRequestOverrides?: Partial<ChallengeRequest>
   voucher?: SignedSessionVoucher
@@ -542,6 +543,105 @@ test('open flow supports configurable transactionVerifier callbacks', async () =
   )
 })
 
+test('close flow supports configurable transactionVerifier callbacks', async () => {
+  const channelId = `channel-close-verified-${crypto.randomUUID()}`
+  const serverNonce = crypto.randomUUID()
+
+  let observedCloseTx: string | null = null
+  let observedFinalCumulative: string | null = null
+
+  const method = createMethod({
+    transactionVerifier: {
+      verifyClose: async (_channelId, closeTx, finalCumulativeAmount) => {
+        observedCloseTx = closeTx
+        observedFinalCumulative = finalCumulativeAmount
+      },
+    },
+  })
+
+  await method.verify({
+    credential: await buildOpenCredential({
+      channelId,
+      serverNonce,
+      depositAmount: '1000',
+      cumulativeAmount: '0',
+      sequence: 0,
+    }),
+    request: buildChallengeRequest(),
+  })
+
+  await method.verify({
+    credential: await buildUpdateCredential({
+      channelId,
+      serverNonce,
+      cumulativeAmount: '400',
+      sequence: 1,
+    }),
+    request: buildChallengeRequest(),
+  })
+
+  const receipt = await method.verify({
+    credential: await buildCloseCredential({
+      channelId,
+      serverNonce,
+      cumulativeAmount: '450',
+      sequence: 2,
+      closeTx: 'close-transaction-signature',
+    }),
+    request: buildChallengeRequest(),
+  })
+
+  assert.equal(receipt.reference, 'close-transaction-signature')
+  assert.equal(observedCloseTx, 'close-transaction-signature')
+  assert.equal(observedFinalCumulative, '450')
+})
+
+test('close flow requires closeTx when verifyClose callback is configured', async () => {
+  const channelId = `channel-close-missing-tx-${crypto.randomUUID()}`
+  const serverNonce = crypto.randomUUID()
+
+  const method = createMethod({
+    transactionVerifier: {
+      verifyClose: async () => undefined,
+    },
+  })
+
+  await method.verify({
+    credential: await buildOpenCredential({
+      channelId,
+      serverNonce,
+      depositAmount: '1000',
+      cumulativeAmount: '0',
+      sequence: 0,
+    }),
+    request: buildChallengeRequest(),
+  })
+
+  await method.verify({
+    credential: await buildUpdateCredential({
+      channelId,
+      serverNonce,
+      cumulativeAmount: '400',
+      sequence: 1,
+    }),
+    request: buildChallengeRequest(),
+  })
+
+  await assert.rejects(
+    async () =>
+      method.verify({
+        credential: await buildCloseCredential({
+          channelId,
+          serverNonce,
+          cumulativeAmount: '450',
+          sequence: 2,
+        }),
+        request: buildChallengeRequest(),
+      }),
+    /closeTx is required/,
+  )
+})
+
 test('rejects update when cumulative amount exceeds deposit', async () => {
   const channelId = `channel-exceed-deposit-${crypto.randomUUID()}`
   const serverNonce = crypto.randomUUID()
@@ -840,6 +940,7 @@ async function buildCloseCredential(
     payload: {
       action: 'close',
       channelId: options.channelId,
+      ...(options.closeTx ? { closeTx: options.closeTx } : {}),
       voucher,
     },
     challenge: {

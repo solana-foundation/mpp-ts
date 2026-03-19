@@ -173,6 +173,8 @@ export const session = Method.from({
           action: z.literal('close'),
           /** Existing channel identifier targeted by this close. */
           channelId: z.string(),
+          /** Optional on-chain settlement transaction reference for this close. */
+          closeTx: z.optional(z.string()),
           /** Signed final voucher payload for close action. */
           voucher: z.object({
             voucher: z.object({

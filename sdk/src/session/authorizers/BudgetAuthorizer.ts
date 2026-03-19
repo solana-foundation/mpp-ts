@@ -42,11 +42,8 @@ type SwigAccount = {
   findRolesByEd25519SignerPk?: (signerPk: string) => SwigRole[]
 }
 
-type SwigModule = {
-  fetchSwig: (
-    rpc: ReturnType<typeof createSolanaRpc>,
-    swigAddress: string,
-  ) => Promise<SwigAccount>
+export type BudgetSwigModule = {
+  fetchSwig: (rpc: unknown, swigAddress: string) => Promise<SwigAccount>
 }
 
 type SwigOnChainRoleConfig = {
@@ -72,8 +69,10 @@ export interface BudgetAuthorizerParameters {
   requireApprovalOnTopup?: boolean
   allowedPrograms?: string[]
   swig: SwigOnChainRoleConfig
+  swigModule?: BudgetSwigModule
   buildOpenTx?: (input: AuthorizeOpenInput) => Promise<string> | string
   buildTopupTx?: (input: AuthorizeTopupInput) => Promise<string> | string
+  buildCloseTx?: (input: AuthorizeCloseInput) => Promise<string> | string
 }
 
 /**
@@ -98,10 +97,13 @@ export class BudgetAuthorizer implements SessionAuthorizer {
   private readonly buildTopupTx?: (
     input: AuthorizeTopupInput,
   ) => Promise<string> | string
+  private readonly buildCloseTx?: (
+    input: AuthorizeCloseInput,
+  ) => Promise<string> | string
   private readonly channels = new Map<string, ChannelProgress>()
   private readonly capabilities: AuthorizerCapabilities
   private swigLoaded = false
-  private swigModule: SwigModule | null = null
+  private swigModule: BudgetSwigModule | null = null
 
   constructor(parameters: BudgetAuthorizerParameters) {
     if (!parameters.swig) {
@@ -143,8 +145,13 @@ export class BudgetAuthorizer implements SessionAuthorizer {
       swigRoleId: parameters.swig.swigRoleId,
       ...(parameters.swig.rpcUrl ? { rpcUrl: parameters.swig.rpcUrl } : {}),
     }
+    if (parameters.swigModule) {
+      this.swigModule = parameters.swigModule
+      this.swigLoaded = true
+    }
     this.buildOpenTx = parameters.buildOpenTx
     this.buildTopupTx = parameters.buildTopupTx
+    this.buildCloseTx = parameters.buildCloseTx
 
     this.capabilities = {
       mode: 'regular_budget',
@@ -374,6 +381,8 @@ export class BudgetAuthorizer implements SessionAuthorizer {
       channelProgram: input.channelProgram,
     })
 
+    const closeTx = await this.resolveCloseTx(input)
+
     this.channels.set(input.channelId, {
       deposited: progress.deposited,
       lastCumulative: finalCumulativeAmount,
@@ -387,7 +396,10 @@ export class BudgetAuthorizer implements SessionAuthorizer {
         : {}),
     })
 
-    return { voucher }
+    return {
+      voucher,
+      ...(closeTx ? { closeTx } : {}),
+    }
   }
 
   private assertNotExpired() {
@@ -576,7 +588,7 @@ export class BudgetAuthorizer implements SessionAuthorizer {
 
     try {
       const swigPackageName = '@swig-wallet/kit'
-      const module = (await import(swigPackageName)) as Partial<SwigModule>
+      const module = (await import(swigPackageName)) as Partial<BudgetSwigModule>
       if (typeof module.fetchSwig !== 'function') {
         throw new Error(
           'Installed `@swig-wallet/kit` does not export fetchSwig() at runtime',
@@ -612,6 +624,16 @@ export class BudgetAuthorizer implements SessionAuthorizer {
     }
 
     return await this.buildTopupTx(input)
+  }
+
+  private async resolveCloseTx(
+    input: AuthorizeCloseInput,
+  ): Promise<string | undefined> {
+    if (!this.buildCloseTx) {
+      return undefined
+    }
+
+    return await this.buildCloseTx(input)
   }
 }
 

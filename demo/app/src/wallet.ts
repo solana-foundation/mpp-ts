@@ -53,7 +53,6 @@ export async function generateWallet(): Promise<KeyPairSigner> {
   // PKCS8 for Ed25519 has the 32-byte private key at offset 16
   const pkcs8 = new Uint8Array(await crypto.subtle.exportKey('pkcs8', keyPair.privateKey))
   const privateKey = pkcs8.slice(16, 48)
-
   const combined = new Uint8Array(64)
   combined.set(privateKey)
   combined.set(publicKey, 32)

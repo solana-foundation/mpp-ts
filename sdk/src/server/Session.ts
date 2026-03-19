@@ -62,6 +62,11 @@ type ClosePayload = Extract<SessionCredentialPayload, { action: 'close' }>
 type TransactionVerifier = {
   verifyOpen?(channelId: string, openTx: string, deposit: string): Promise<void>
   verifyTopup?(channelId: string, topupTx: string, amount: string): Promise<void>
+  verifyClose?(
+    channelId: string,
+    closeTx: string,
+    finalCumulativeAmount: string,
+  ): Promise<void>
 }
 
 export function session(parameters: session.Parameters) {
@@ -468,6 +473,18 @@ async function handleClose(
     throw new Error('Voucher cumulative amount exceeds channel deposit')
   }
 
+  if (parameters.transactionVerifier?.verifyClose) {
+    if (!payload.closeTx?.trim()) {
+      throw new Error('closeTx is required for session close')
+    }
+
+    await parameters.transactionVerifier.verifyClose(
+      payload.channelId,
+      payload.closeTx,
+      voucher.voucher.cumulativeAmount,
+    )
+  }
+
   await verifySignedVoucher(voucher, channel, parameters.verifier?.voucherVerifier)
 
   await channelStore.updateChannel(payload.channelId, (current) => {
@@ -512,7 +529,7 @@ async function handleClose(
     }
   })
 
-  return toSuccessReceipt(payload.channelId, challengeId)
+  return toSuccessReceipt(payload.closeTx ?? payload.channelId, challengeId)
 }
 
 function assertSessionParameters(parameters: session.Parameters) {

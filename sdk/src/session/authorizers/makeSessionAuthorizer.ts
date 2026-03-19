@@ -23,6 +23,9 @@ export interface MakeSessionAuthorizerParameters {
   buildTopupTx?: (
     input: Parameters<NonNullable<BudgetAuthorizerParameters['buildTopupTx']>>[0],
   ) => Promise<string> | string
+  buildCloseTx?: (
+    input: Parameters<NonNullable<BudgetAuthorizerParameters['buildCloseTx']>>[0],
+  ) => Promise<string> | string
 }
 
 /**
@@ -70,6 +73,9 @@ export function makeSessionAuthorizer(
         ...(parameters.buildTopupTx
           ? { buildTopupTx: parameters.buildTopupTx }
           : {}),
+        ...(parameters.buildCloseTx
+          ? { buildCloseTx: parameters.buildCloseTx }
+          : {}),
       })
     }
 
@@ -83,6 +89,9 @@ export function makeSessionAuthorizer(
         ...(parameters.buildOpenTx ? { buildOpenTx: parameters.buildOpenTx } : {}),
         ...(parameters.buildTopupTx
           ? { buildTopupTx: parameters.buildTopupTx }
+          : {}),
+        ...(parameters.buildCloseTx
+          ? { buildCloseTx: parameters.buildCloseTx }
           : {}),
         requiresInteractiveApproval: {
           update: profile.requireApprovalOnEveryUpdate,
@@ -109,6 +118,9 @@ export function makeSessionAuthorizer(
         ...(parameters.buildOpenTx ? { buildOpenTx: parameters.buildOpenTx } : {}),
         ...(parameters.buildTopupTx
           ? { buildTopupTx: parameters.buildTopupTx }
+          : {}),
+        ...(parameters.buildCloseTx
+          ? { buildCloseTx: parameters.buildCloseTx }
           : {}),
       })
     }

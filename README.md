@@ -180,6 +180,9 @@ With fee sponsorship, the client partially signs (transfer authority only) and t
 
 An interactive playground with a React frontend and Express backend, running against [Surfpool](https://surfpool.run).
 
+- Charge flow demo: `http://localhost:5173/playground`
+- Swig session demo: `http://localhost:5173/swig`
+
 ```bash
 surfpool start
 npm run demo:install
@@ -204,6 +207,10 @@ npm run test:all           # All tests
 ## Spec
 
 This SDK implements the [Solana Charge Intent](https://github.com/tempoxyz/mpp-specs/pull/188) for the [HTTP Payment Authentication Scheme](https://paymentauth.org).
+
+Session method docs and implementation notes:
+
+- [docs/methods/sessions.md](docs/methods/sessions.md)
 
 ## License
 

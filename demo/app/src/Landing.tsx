@@ -17,6 +17,10 @@ export default function Landing() {
           <span style={{ ...s.flowStep, color: '#FFD700' }}>{'\u2713'} Access</span>
         </div>
 
+        <div style={s.sessionTag}>
+          Also includes Swig-backed session payments with delegated keys.
+        </div>
+
         <pre style={s.codePreview}>{`// Server: charge 0.001 SOL per request
 const mppx = Mppx.create({
   methods: [solana.charge({ recipient, network: 'devnet' })],
@@ -35,9 +39,14 @@ const response = await mppx.fetch(url)`}</pre>
           <a style={s.link} href="https://github.com/solana-foundation/solana-mpp-sdk" target="_blank" rel="noopener">GitHub</a>
         </div>
 
-        <button style={s.cta} onClick={() => nav('/playground')}>
-          Try the Playground
-        </button>
+        <div style={s.ctaRow}>
+          <button style={s.cta} onClick={() => nav('/playground')}>
+            Try Charge Demo
+          </button>
+          <button style={s.ctaAlt} onClick={() => nav('/swig')}>
+            Try Swig Session Demo
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -90,6 +99,12 @@ const s: Record<string, React.CSSProperties> = {
     fontSize: 14,
     color: '#E0E0E0',
   },
+  sessionTag: {
+    marginTop: -8,
+    marginBottom: 24,
+    color: '#7b83a2',
+    fontSize: 13,
+  },
   codePreview: {
     textAlign: 'left',
     background: '#111',
@@ -115,8 +130,14 @@ const s: Record<string, React.CSSProperties> = {
     margin: '0 8px',
     color: '#333',
   },
-  cta: {
+  ctaRow: {
     marginTop: 24,
+    display: 'flex',
+    justifyContent: 'center',
+    gap: 10,
+    flexWrap: 'wrap',
+  },
+  cta: {
     padding: '14px 32px',
     background: '#9945FF',
     border: 'none',
@@ -127,5 +148,17 @@ const s: Record<string, React.CSSProperties> = {
     fontWeight: 600,
     cursor: 'pointer',
     letterSpacing: 0.5,
+  },
+  ctaAlt: {
+    padding: '14px 22px',
+    background: '#13221d',
+    border: '1px solid #1f5f4c',
+    borderRadius: 10,
+    color: '#14F195',
+    fontFamily: 'JetBrains Mono, monospace',
+    fontSize: 14,
+    fontWeight: 600,
+    cursor: 'pointer',
+    letterSpacing: 0.3,
   },
 }

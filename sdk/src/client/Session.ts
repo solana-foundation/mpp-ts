@@ -57,8 +57,14 @@ export const sessionContextSchema = z.object({
 export type SessionContext = z.infer<typeof sessionContextSchema>
 
 export function session(parameters: session.Parameters) {
-  const { signer, authorizer, autoOpen = true, autoTopup = false, onProgress } =
-    parameters
+  const {
+    signer,
+    authorizer,
+    autoOpen = true,
+    autoTopup = false,
+    settleOnLimitHit = false,
+    onProgress,
+  } = parameters
 
   let activeChannel: ActiveChannel | null = null
 
@@ -347,9 +353,28 @@ export function session(parameters: session.Parameters) {
 
       if (nextCumulativeAmount > scopedActiveChannel.depositAmount) {
         if (!autoTopup) {
-          throw new Error(
-            'Voucher cumulative amount exceeds tracked deposit and autoTopup is disabled',
+          if (!settleOnLimitHit) {
+            throw new Error(
+              'Voucher cumulative amount exceeds tracked deposit and autoTopup is disabled',
+            )
+          }
+
+          const closeCredential = await handleCloseAction(
+            challenge,
+            {
+              action: 'close',
+              channelId: scopedActiveChannel.channelId,
+            },
+            authorizer,
+            scopedActiveChannel,
+            channelProgram,
+            recipient,
+            network,
+            onProgress,
           )
+
+          activeChannel = null
+          return closeCredential
         }
 
         const additionalAmount = resolveAutoTopupAmount(
@@ -505,6 +530,7 @@ async function handleCloseAction(
   const payload: SessionCredentialPayload = {
     action: 'close',
     channelId,
+    ...(closeResult.closeTx ? { closeTx: closeResult.closeTx } : {}),
     voucher: closeResult.voucher,
   }
 
@@ -629,6 +655,7 @@ export declare namespace session {
     authorizer: SessionAuthorizer
     autoOpen?: boolean
     autoTopup?: boolean
+    settleOnLimitHit?: boolean
     onProgress?: (event: ProgressEvent) => void
   }
 

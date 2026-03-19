@@ -3,6 +3,7 @@ import express from 'express'
 import cors from 'cors'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import type { Request, Response } from 'express'
 import {
   generateKeyPairSigner,
   createKeyPairSignerFromBytes,
@@ -13,6 +14,7 @@ import {
 import { registerStocks } from './modules/stocks.js'
 import { registerWeather } from './modules/weather.js'
 import { registerFaucet } from './modules/faucet.js'
+import { registerSwigSession } from './modules/swigSession.js'
 
 // Recipient is the address that receives payments.
 // If not provided, generate one automatically (demo convenience).
@@ -81,7 +83,7 @@ app.use(
 )
 
 // Health check — also exposes fee payer balance for the UI
-app.get('/api/v1/health', async (_req, res) => {
+app.get('/api/v1/health', async (_req: Request, res: Response) => {
   let feePayerBalance: number | undefined
   try {
     const rpc = createSolanaRpc('http://localhost:8899')
@@ -99,12 +101,13 @@ app.get('/api/v1/health', async (_req, res) => {
 registerStocks(app, RECIPIENT, NETWORK, SECRET_KEY, feePayerSigner)
 registerWeather(app, RECIPIENT, NETWORK, SECRET_KEY, feePayerSigner)
 registerFaucet(app, NETWORK)
+registerSwigSession(app, RECIPIENT, NETWORK, SECRET_KEY)
 
 // Serve SPA in production
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const appDist = path.join(__dirname, '../app/dist')
 app.use(express.static(appDist))
-app.get('*splat', (_req, res) => {
+app.get('*splat', (_req: Request, res: Response) => {
   res.sendFile(path.join(appDist, 'index.html'))
 })
 
@@ -133,6 +136,9 @@ app.listen(PORT, () => {
     { method: 'GET',  path: '/api/v1/stocks/search?q=',      cost: '0.01 USDC' },
     { method: 'GET',  path: '/api/v1/stocks/history/:symbol', cost: '0.05 USDC' },
     { method: 'GET',  path: '/api/v1/weather/:city',          cost: '0.01 USDC' },
+    { method: 'GET',  path: '/api/v1/swig/research/:topic',   cost: '0.01 USDC/request (settled on close)' },
+    { method: 'GET',  path: '/api/v1/swig/risk/:symbol',      cost: '0.01 USDC/request (settled on close)' },
+    { method: 'GET',  path: '/api/v1/swig/status',            cost: '' },
     { method: 'POST', path: '/api/v1/faucet/airdrop',         cost: '' },
     { method: 'GET',  path: '/api/v1/faucet/status',           cost: '' },
   ]

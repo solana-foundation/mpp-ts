@@ -64,6 +64,8 @@ High level flow:
 4. Server verifies voucher, challenge binding, and channel invariants.
 5. Server returns paid response (or `204` for management actions like `topup` and `close`).
 
+`close` payloads can optionally include `closeTx`, an on-chain settlement transaction reference.
+
 ## Server behavior and checks
 
 The server session method (`sdk/src/server/Session.ts`) verifies:
@@ -80,8 +82,9 @@ Optional hooks for stronger on-chain checks:
 
 - `transactionVerifier.verifyOpen(channelId, openTx, deposit)`
 - `transactionVerifier.verifyTopup(channelId, topupTx, amount)`
+- `transactionVerifier.verifyClose(channelId, closeTx, finalCumulativeAmount)`
 
-Use these hooks to ensure `openTx` and `topupTx` are real confirmed transactions with expected semantics.
+Use these hooks to ensure `openTx`, `topupTx`, and `closeTx` are real confirmed transactions with expected semantics.
 
 ## Client behavior
 
@@ -156,7 +159,7 @@ const mppx = Mppx.create({
             network: "devnet",
             rpcUrl: "http://localhost:8899",
             asset: { kind: "sol", decimals: 9, symbol: "SOL" },
-            channelProgram: "Session11111111111111111111111111111111111",
+            channelProgram: "swigypWHEksbC64pWKwah1WTeh9JXwx8H1rJHLdbQMB",
             pricing: {
                 unit: "request",
                 amountPerUnit: "10",
@@ -172,6 +175,9 @@ const mppx = Mppx.create({
                 },
                 async verifyTopup(channelId, topupTx, amount) {
                     // Fetch tx by signature and assert expected topup semantics.
+                },
+                async verifyClose(channelId, closeTx, finalCumulativeAmount) {
+                    // Fetch tx by signature and assert settlement transfer semantics.
                 },
             },
         }),
@@ -206,7 +212,7 @@ const authorizer = new SwigSessionAuthorizer({
         spendLimit: "1000",
     },
     rpcUrl: "http://localhost:8899",
-    allowedPrograms: ["Session11111111111111111111111111111111111"],
+    allowedPrograms: ["swigypWHEksbC64pWKwah1WTeh9JXwx8H1rJHLdbQMB"],
     buildTopupTx: async () => {
         // Return topup transaction reference.
         return "topup-signature";
@@ -250,4 +256,5 @@ const mppx = Mppx.create({ methods: [method] });
 ## Design notes
 
 - `@swig-wallet/kit` is an optional dependency and loaded dynamically by Swig authorizers.
+- Browser demos can pass `swigModule: { fetchSwig }` to Swig authorizers to avoid runtime bare-specifier import issues in some bundler setups.
 - For production, use `transactionVerifier` to require on-chain proof for open and topup actions.

@@ -39,6 +39,9 @@ npm run demo:app
 
 Open http://localhost:5173 in your browser.
 
+- Charge demo: http://localhost:5173/playground
+- Swig session demo: http://localhost:5173/swig
+
 ### Importing a Wallet
 
 In the browser, you can **drag & drop** any Solana keypair JSON file onto the
@@ -77,6 +80,28 @@ on behalf of clients. Clients only pay the transfer amount.
 
 The faucet uses Surfpool's `surfnet_setAccount` and `surfnet_setTokenAccount`
 cheatcodes to give the client 100 SOL + 100 USDC instantly.
+
+## Swig Session Demo
+
+The Swig demo shows session-based API payments with on-chain role enforcement.
+
+Session endpoints:
+
+| Method | Path                           | Cost                  |
+| ------ | ------------------------------ | --------------------- |
+| GET    | `/api/v1/swig/research/:topic` | 0.01 USDC / request   |
+| GET    | `/api/v1/swig/risk/:symbol`    | 0.01 USDC / request   |
+| GET    | `/api/v1/swig/status`          | Free                  |
+
+Flow in the UI:
+
+1. Open `/swig`.
+2. Click **Initialize Swig** to create/fetch a Swig wallet role on-chain.
+3. Send requests repeatedly to watch session open/update events.
+4. Use **Close Session** to submit a close action and settle USDC on-chain.
+
+The client uses `SwigSessionAuthorizer` and creates delegated session keys on-chain.
+The server only accepts `swig_session` mode for these endpoints and verifies close-settlement transactions.
 
 ## How It Works
 
