@@ -81,7 +81,7 @@ export function registerMarketplace(
                     recipient: product.seller,
                     network,
                     signer: feePayerSigner,
-                    splToken: USDC_MINT,
+                    currency: USDC_MINT,
                     decimals: 6,
                     splits,
                 }),
