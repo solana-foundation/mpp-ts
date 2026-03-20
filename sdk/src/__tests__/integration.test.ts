@@ -535,6 +535,226 @@ test('e2e: fee payer mode — server co-signs and pays fees', async () => {
     }
 });
 
+// ── USDC charge (SPL token) ──
+
+const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+const TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
+
+async function fundUsdc(ownerAddress: string, amount: number) {
+    await fetch(RPC_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'surfnet_setTokenAccount',
+            params: [ownerAddress, USDC_MINT, { amount, state: 'initialized' }, TOKEN_PROGRAM],
+        }),
+    });
+}
+
+test('e2e: USDC charge via pull mode with fee payer', async () => {
+    const feePayerSigner = await generateKeyPairSigner();
+    await client.airdrop(feePayerSigner.address, lamports(10_000_000_000n));
+    await fundUsdc(clientSigner.address, 100_000_000); // 100 USDC
+
+    const secretKey = 'test-secret-key-usdc';
+
+    const usdcMppx = ServerMppx.create({
+        secretKey,
+        methods: [
+            serverSolana.charge({
+                recipient: recipientSigner.address,
+                network: 'localnet',
+                rpcUrl: RPC_URL,
+                splToken: USDC_MINT,
+                decimals: 6,
+                signer: feePayerSigner,
+            }),
+        ],
+    });
+
+    const usdcServer = http.createServer(async (req, res) => {
+        const body = await readBody(req);
+        const webReq = toWebRequest(req, body);
+
+        const result = await usdcMppx.charge({
+            amount: '10000', // 0.01 USDC
+            currency: 'USDC',
+        })(webReq);
+
+        if (result.status === 402) {
+            const challenge = result.challenge as Response;
+            res.writeHead(challenge.status, Object.fromEntries(challenge.headers));
+            res.end(await challenge.text());
+            return;
+        }
+
+        const response = result.withReceipt(Response.json({ paid: true })) as Response;
+        res.writeHead(response.status, Object.fromEntries(response.headers));
+        res.end(await response.text());
+    });
+
+    const usdcPort = await new Promise<number>(resolve => {
+        usdcServer.listen(0, () => resolve((usdcServer.address() as { port: number }).port));
+    });
+
+    try {
+        const clientMethod = clientSolana.charge({
+            signer: clientSigner,
+            rpcUrl: RPC_URL,
+        });
+
+        const mppx = ClientMppx.create({ methods: [clientMethod] });
+        const response = await mppx.fetch(`http://localhost:${usdcPort}/test`);
+
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({ paid: true });
+
+        const receiptHeader = response.headers.get('Payment-Receipt');
+        expect(receiptHeader).toBeTruthy();
+    } finally {
+        usdcServer.close();
+    }
+});
+
+test('e2e: USDC charge with splits (platform fee)', async () => {
+    const feePayerSigner = await generateKeyPairSigner();
+    const platformSigner = await generateKeyPairSigner();
+    await client.airdrop(feePayerSigner.address, lamports(10_000_000_000n));
+    await fundUsdc(clientSigner.address, 100_000_000); // 100 USDC
+
+    const secretKey = 'test-secret-key-splits';
+    const splits = [{ recipient: platformSigner.address, amount: '5000', memo: 'platform fee' }];
+
+    const splitsMppx = ServerMppx.create({
+        secretKey,
+        methods: [
+            serverSolana.charge({
+                recipient: recipientSigner.address,
+                network: 'localnet',
+                rpcUrl: RPC_URL,
+                splToken: USDC_MINT,
+                decimals: 6,
+                signer: feePayerSigner,
+                splits,
+            }),
+        ],
+    });
+
+    const splitsServer = http.createServer(async (req, res) => {
+        const body = await readBody(req);
+        const webReq = toWebRequest(req, body);
+
+        const result = await splitsMppx.charge({
+            amount: '15000', // 0.015 USDC total (0.01 to recipient + 0.005 to platform)
+            currency: 'USDC',
+        })(webReq);
+
+        if (result.status === 402) {
+            const challenge = result.challenge as Response;
+            res.writeHead(challenge.status, Object.fromEntries(challenge.headers));
+            res.end(await challenge.text());
+            return;
+        }
+
+        const response = result.withReceipt(Response.json({ paid: true })) as Response;
+        res.writeHead(response.status, Object.fromEntries(response.headers));
+        res.end(await response.text());
+    });
+
+    const splitsPort = await new Promise<number>(resolve => {
+        splitsServer.listen(0, () => resolve((splitsServer.address() as { port: number }).port));
+    });
+
+    try {
+        const clientMethod = clientSolana.charge({
+            signer: clientSigner,
+            rpcUrl: RPC_URL,
+        });
+
+        const mppx = ClientMppx.create({ methods: [clientMethod] });
+        const response = await mppx.fetch(`http://localhost:${splitsPort}/test`);
+
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({ paid: true });
+    } finally {
+        splitsServer.close();
+    }
+});
+
+test('e2e: native SOL charge with splits', async () => {
+    const platformSigner = await generateKeyPairSigner();
+    const referrerSigner = await generateKeyPairSigner();
+
+    const secretKey = 'test-secret-key-sol-splits';
+    const splits = [
+        { recipient: platformSigner.address, amount: '50000' },
+        { recipient: referrerSigner.address, amount: '20000' },
+    ];
+
+    const solSplitsMppx = ServerMppx.create({
+        secretKey,
+        methods: [
+            serverSolana.charge({
+                recipient: recipientSigner.address,
+                network: 'localnet',
+                rpcUrl: RPC_URL,
+                splits,
+            }),
+        ],
+    });
+
+    const solSplitsServer = http.createServer(async (req, res) => {
+        const body = await readBody(req);
+        const webReq = toWebRequest(req, body);
+
+        const result = await solSplitsMppx.charge({
+            amount: '1070000', // 1M to recipient + 50k platform + 20k referrer
+            currency: 'SOL',
+        })(webReq);
+
+        if (result.status === 402) {
+            const challenge = result.challenge as Response;
+            res.writeHead(challenge.status, Object.fromEntries(challenge.headers));
+            res.end(await challenge.text());
+            return;
+        }
+
+        const response = result.withReceipt(Response.json({ paid: true })) as Response;
+        res.writeHead(response.status, Object.fromEntries(response.headers));
+        res.end(await response.text());
+    });
+
+    const solSplitsPort = await new Promise<number>(resolve => {
+        solSplitsServer.listen(0, () => resolve((solSplitsServer.address() as { port: number }).port));
+    });
+
+    try {
+        const clientMethod = clientSolana.charge({
+            signer: clientSigner,
+            rpcUrl: RPC_URL,
+        });
+
+        const mppx = ClientMppx.create({ methods: [clientMethod] });
+
+        const platformBefore = await getBalance(client, platformSigner.address);
+        const referrerBefore = await getBalance(client, referrerSigner.address);
+
+        const response = await mppx.fetch(`http://localhost:${solSplitsPort}/test`);
+        expect(response.status).toBe(200);
+
+        // Verify split recipients received their shares
+        const platformAfter = await getBalance(client, platformSigner.address);
+        const referrerAfter = await getBalance(client, referrerSigner.address);
+
+        expect(platformAfter - platformBefore).toBe(50_000n);
+        expect(referrerAfter - referrerBefore).toBe(20_000n);
+    } finally {
+        solSplitsServer.close();
+    }
+});
+
 // ── Session flow ──
 
 test('e2e: session auto-open then update over repeated requests', async () => {

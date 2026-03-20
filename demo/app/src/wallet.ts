@@ -7,7 +7,7 @@ import {
   type KeyPairSigner,
 } from '@solana/kit'
 import { findAssociatedTokenPda } from '@solana-program/token'
-import { Mppx, solana } from 'solana-mpp-sdk/client'
+import { Mppx, solana } from '@solana/mpp/client'
 
 const STORAGE_KEY = 'solana-mpp-demo:secret-key'
 const RPC_URL = 'http://localhost:8899'
@@ -149,7 +149,7 @@ async function getMppx() {
     const method = solana.charge({
       signer,
       rpcUrl: RPC_URL,
-      onProgress(event) {
+      onProgress(event: ProgressEvent) {
         progressCallback?.(event)
       },
     })
@@ -224,7 +224,7 @@ export async function* payAndFetch(url: string): AsyncGenerator<Step> {
 
       // Race: either new progress arrives or fetch completes.
       const result = await Promise.race([
-        fetchPromise.then((r) => ({ done: true as const, response: r })),
+        fetchPromise.then((r: Response) => ({ done: true as const, response: r })),
         new Promise<{ done: false }>((r) => {
           resolve = () => r({ done: false })
         }),

@@ -77,6 +77,7 @@ export function charge(parameters: charge.Parameters) {
                 feePayer: serverPaysFees,
                 feePayerKey,
                 recentBlockhash: serverBlockhash,
+                splits,
             } = methodDetails;
 
             const rpcUrl =
@@ -93,13 +94,18 @@ export function charge(parameters: charge.Parameters) {
 
             const useServerFeePayer = serverPaysFees && feePayerKey && !broadcast;
 
+            // Compute primary amount (total minus splits).
+            const splitsTotal = (splits ?? []).reduce((sum, s) => sum + BigInt(s.amount), 0n);
+            const primaryAmount = BigInt(amount) - splitsTotal;
+
             // Build transfer instructions.
             const instructions: Instruction[] = [];
 
             if (splToken) {
-                // ── SPL token transfer ──
+                // ── SPL token transfers ──
                 const mint = address(splToken);
                 const tokenProg = address(tokenProgramAddr || TOKEN_PROGRAM);
+                const tokenDecimals = decimals ?? 6;
 
                 const [sourceAta] = await findAssociatedTokenPda({
                     mint,
@@ -107,69 +113,84 @@ export function charge(parameters: charge.Parameters) {
                     tokenProgram: tokenProg,
                 });
 
-                const [destAta] = await findAssociatedTokenPda({
-                    mint,
-                    owner: address(recipient),
-                    tokenProgram: tokenProg,
-                });
+                // Helper: add ATA creation + transferChecked for a recipient.
+                const addSplTransfer = async (dest: string, transferAmount: bigint) => {
+                    const [destAta] = await findAssociatedTokenPda({
+                        mint,
+                        owner: address(dest),
+                        tokenProgram: tokenProg,
+                    });
 
-                // Create destination ATA if it doesn't exist (idempotent).
-                // WARNING: When the server is fee payer, it pays ~0.002 SOL rent for ATA
-                // creation. The recipient can close the ATA to reclaim rent, then the next
-                // payment re-creates it — repeatedly draining the fee payer. Servers SHOULD
-                // verify the ATA exists before signing, or require recipients to pre-create
-                // their ATAs, or factor rent cost into pricing.
-                if (useServerFeePayer) {
-                    // In fee payer mode, the server's key pays ATA rent.
-                    // We build the instruction manually since the payer isn't a local signer.
+                    // Create destination ATA if it doesn't exist (idempotent).
+                    if (useServerFeePayer) {
+                        instructions.push(
+                            createAssociatedTokenAccountIdempotent(
+                                address(feePayerKey),
+                                address(dest),
+                                mint,
+                                destAta,
+                                tokenProg,
+                            ),
+                        );
+                    } else {
+                        instructions.push(
+                            getCreateAssociatedTokenIdempotentInstruction({
+                                ata: destAta,
+                                mint,
+                                owner: address(dest),
+                                payer: signer,
+                                tokenProgram: tokenProg,
+                            }),
+                        );
+                    }
+
                     instructions.push(
-                        createAssociatedTokenAccountIdempotent(
-                            address(feePayerKey),
-                            address(recipient),
-                            mint,
-                            destAta,
-                            tokenProg,
+                        getTransferCheckedInstruction(
+                            {
+                                amount: transferAmount,
+                                authority: signer,
+                                decimals: tokenDecimals,
+                                destination: destAta,
+                                mint,
+                                source: sourceAta,
+                            },
+                            { programAddress: tokenProg },
                         ),
                     );
-                } else {
-                    // Standard mode: client pays ATA rent via Codama-generated instruction.
-                    instructions.push(
-                        getCreateAssociatedTokenIdempotentInstruction({
-                            ata: destAta,
-                            mint,
-                            owner: address(recipient),
-                            payer: signer,
-                            tokenProgram: tokenProg,
-                        }),
-                    );
-                }
+                };
 
-                instructions.push(
-                    getTransferCheckedInstruction(
-                        {
-                            amount: BigInt(amount),
-                            authority: signer,
-                            decimals: decimals ?? 6,
-                            destination: destAta,
-                            mint,
-                            source: sourceAta,
-                        },
-                        { programAddress: tokenProg },
-                    ),
-                );
+                // Primary transfer to recipient.
+                await addSplTransfer(recipient, primaryAmount);
+
+                // Split transfers.
+                for (const split of splits ?? []) {
+                    await addSplTransfer(split.recipient, BigInt(split.amount));
+                }
             } else {
-                // ── Native SOL transfer ──
+                // ── Native SOL transfers ──
+                // Primary transfer to recipient.
                 instructions.push(
                     getTransferSolInstruction({
-                        amount: BigInt(amount),
+                        amount: primaryAmount,
                         destination: address(recipient),
                         source: signer,
                     }),
                 );
+
+                // Split transfers.
+                for (const split of splits ?? []) {
+                    instructions.push(
+                        getTransferSolInstruction({
+                            amount: BigInt(split.amount),
+                            destination: address(split.recipient),
+                            source: signer,
+                        }),
+                    );
+                }
             }
 
             if (reference?.trim()) {
-                instructions.push(createReferenceMemoInstruction(reference));
+                instructions.push(createReferenceMemoInstruction(reference, signer));
             }
 
             onProgress?.({ type: 'signing' });
@@ -195,7 +216,7 @@ export function charge(parameters: charge.Parameters) {
                     prependTransactionMessageInstructions(
                         [
                             getSetComputeUnitPriceInstruction({ microLamports: parameters.computeUnitPrice ?? 1n }),
-                            getSetComputeUnitLimitInstruction({ units: parameters.computeUnitLimit ?? 50_000 }),
+                            getSetComputeUnitLimitInstruction({ units: parameters.computeUnitLimit ?? 200_000 }),
                         ],
                         msg,
                     ),
@@ -277,9 +298,12 @@ function createAssociatedTokenAccountIdempotent(
  * Adds challenge reference as memo to make rapid identical payments unique
  * per challenge (important for local simnets such as Surfpool).
  */
-function createReferenceMemoInstruction(reference: string): Instruction {
+function createReferenceMemoInstruction(reference: string, memoSigner: TransactionSigner): Instruction {
     return {
-        accounts: [],
+        accounts: [
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            { address: memoSigner.address, role: AccountRole.READONLY_SIGNER, signer: memoSigner } as any,
+        ],
         data: textEncoder.encode(`mppx:${reference}`),
         programAddress: address(MEMO_PROGRAM),
     };
@@ -318,7 +342,7 @@ export declare namespace charge {
          * Cannot be used with server fee sponsorship (feePayer mode).
          */
         broadcast?: boolean;
-        /** Compute unit limit. Defaults to 50,000. */
+        /** Compute unit limit. Defaults to 200,000. */
         computeUnitLimit?: number;
         /** Compute unit price in micro-lamports for priority fees. Defaults to 1. */
         computeUnitPrice?: bigint;

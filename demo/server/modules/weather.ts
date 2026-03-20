@@ -1,7 +1,7 @@
 import type { Express } from 'express'
 import type { KeyPairSigner } from '@solana/kit'
 import { Mppx, solana } from '../sdk.js'
-import { toWebRequest } from '../utils.js'
+import { toWebRequest, logPayment } from '../utils.js'
 import { USDC_MINT } from '../constants.js'
 
 // Simple in-memory weather data for the demo (no external API needed).
@@ -60,6 +60,7 @@ export function registerWeather(
     const response = result.withReceipt(
       Response.json({ city: req.params.city, ...data }),
     ) as Response
+    logPayment(req.path, response)
     res.writeHead(response.status, Object.fromEntries(response.headers))
     res.end(await response.text())
   })

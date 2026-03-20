@@ -52,7 +52,7 @@ export function registerSwigSession(
           acceptAuthorizationModes: ['swig_session'],
         },
         transactionVerifier: {
-          async verifyOpen(_channelId, openTx, depositAmount) {
+          async verifyOpen(_channelId: string, openTx: string, depositAmount: string) {
             const tx = await getConfirmedTransaction(openTx)
             if (!tx) {
               throw new Error('openTx should resolve to a confirmed on-chain transaction')
@@ -70,7 +70,7 @@ export function registerSwigSession(
               )
             }
           },
-          async verifyTopup(_channelId, topupTx, additionalAmount) {
+          async verifyTopup(_channelId: string, topupTx: string, additionalAmount: string) {
             const tx = await getConfirmedTransaction(topupTx)
             if (!tx) {
               throw new Error('topupTx should resolve to a confirmed on-chain transaction')
@@ -88,7 +88,7 @@ export function registerSwigSession(
               )
             }
           },
-          async verifyClose(_channelId, closeTx, finalCumulativeAmount) {
+          async verifyClose(_channelId: string, closeTx: string, finalCumulativeAmount: string) {
             const tx = await getConfirmedTransaction(closeTx)
             if (!tx) {
               throw new Error('closeTx should resolve to a confirmed on-chain transaction')

@@ -48,6 +48,7 @@ export function charge(parameters: charge.Parameters) {
         tokenProgram = TOKEN_PROGRAM,
         network = 'mainnet-beta',
         store = Store.memory(),
+        splits,
         signer,
     } = parameters;
 
@@ -55,6 +56,10 @@ export function charge(parameters: charge.Parameters) {
 
     if (splToken && decimals === undefined) {
         throw new Error('decimals is required when splToken is set');
+    }
+
+    if (splits && splits.length > 8) {
+        throw new Error('splits cannot exceed 8 entries');
     }
 
     if (signer && !isTransactionPartialSigner(signer)) {
@@ -105,6 +110,7 @@ export function charge(parameters: charge.Parameters) {
                     reference,
                     ...(splToken ? { decimals, splToken, tokenProgram } : {}),
                     ...(signer ? { feePayer: true, feePayerKey: signer.address } : {}),
+                    ...(splits?.length ? { splits } : {}),
                     ...(recentBlockhash ? { recentBlockhash } : {}),
                 },
                 recipient,
@@ -243,58 +249,102 @@ async function verifyOnChain(rpcUrl: string, signature: string, challenge: Chall
 }
 
 async function verifyInstructions(instructions: ParsedInstruction[], challenge: ChallengeRequest, recipient: string) {
-    const expectedAmount = challenge.amount;
+    const splits = challenge.methodDetails.splits ?? [];
+    const splitsTotal = splits.reduce((sum, s) => sum + BigInt(s.amount), 0n);
+    const primaryAmount = BigInt(challenge.amount) - splitsTotal;
+
+    if (primaryAmount <= 0n) {
+        throw new Error('Splits consume the entire amount — primary recipient must receive a positive amount');
+    }
 
     if (challenge.methodDetails.splToken) {
-        // ── SPL token transfer verification ──
-        const transfer = instructions.find(
+        // ── SPL token transfers verification ──
+        const transfers = instructions.filter(
             ix =>
                 ix.parsed?.type === 'transferChecked' &&
                 (ix.programId === TOKEN_PROGRAM || ix.programId === TOKEN_2022_PROGRAM),
         );
-        if (!transfer) {
-            throw new Error('No TransferChecked instruction found in transaction');
-        }
 
-        const info = transfer.parsed!.info as {
-            destination: string;
-            mint: string;
-            tokenAmount: { amount: string };
-        };
-        if (info.mint !== challenge.methodDetails.splToken) {
-            throw new Error(`Token mint mismatch: expected ${challenge.methodDetails.splToken}, got ${info.mint}`);
-        }
-        if (info.tokenAmount.amount !== expectedAmount) {
-            throw new Error(`Amount mismatch: expected ${expectedAmount}, got ${info.tokenAmount.amount}`);
-        }
-
-        // Verify destination ATA belongs to the expected recipient.
         const expectedTokenProgram = challenge.methodDetails.tokenProgram || TOKEN_PROGRAM;
-        const [expectedAta] = await findAssociatedTokenPda({
-            mint: address(challenge.methodDetails.splToken),
-            owner: address(recipient),
-            tokenProgram: address(expectedTokenProgram),
-        });
-        if (info.destination !== expectedAta) {
-            throw new Error('Destination token account does not belong to expected recipient');
+
+        // Verify primary transfer to recipient.
+        await verifySplTransfer(
+            transfers,
+            recipient,
+            String(primaryAmount),
+            challenge.methodDetails.splToken,
+            expectedTokenProgram,
+        );
+
+        // Verify each split transfer.
+        for (const split of splits) {
+            await verifySplTransfer(
+                transfers,
+                split.recipient,
+                split.amount,
+                challenge.methodDetails.splToken,
+                expectedTokenProgram,
+            );
         }
     } else {
-        // ── Native SOL transfer verification ──
-        const transfer = instructions.find(ix => ix.parsed?.type === 'transfer' && ix.program === 'system');
-        if (!transfer) {
-            throw new Error('No system transfer instruction found in transaction');
-        }
+        // ── Native SOL transfers verification ──
+        const transfers = instructions.filter(ix => ix.parsed?.type === 'transfer' && ix.program === 'system');
 
-        const info = transfer.parsed!.info as {
-            destination: string;
-            lamports: number;
-        };
-        if (info.destination !== recipient) {
-            throw new Error(`Recipient mismatch: expected ${recipient}, got ${info.destination}`);
+        // Verify primary transfer to recipient.
+        verifySolTransfer(transfers, recipient, String(primaryAmount));
+
+        // Verify each split transfer.
+        for (const split of splits) {
+            verifySolTransfer(transfers, split.recipient, split.amount);
         }
-        if (String(info.lamports) !== expectedAmount) {
-            throw new Error(`Amount mismatch: expected ${expectedAmount} lamports, got ${info.lamports}`);
-        }
+    }
+}
+
+async function verifySplTransfer(
+    transfers: ParsedInstruction[],
+    recipientAddress: string,
+    expectedAmount: string,
+    splToken: string,
+    tokenProgram: string,
+) {
+    const [expectedAta] = await findAssociatedTokenPda({
+        mint: address(splToken),
+        owner: address(recipientAddress),
+        tokenProgram: address(tokenProgram),
+    });
+
+    const transfer = transfers.find(ix => {
+        const info = ix.parsed!.info as { destination: string; mint: string; tokenAmount: { amount: string } };
+        return info.destination === expectedAta && info.mint === splToken;
+    });
+
+    if (!transfer) {
+        throw new Error(`No TransferChecked instruction found for recipient ${recipientAddress}`);
+    }
+
+    const info = transfer.parsed!.info as { destination: string; mint: string; tokenAmount: { amount: string } };
+    if (info.tokenAmount.amount !== expectedAmount) {
+        throw new Error(
+            `Amount mismatch for ${recipientAddress}: expected ${expectedAmount}, got ${info.tokenAmount.amount}`,
+        );
+    }
+}
+
+function verifySolTransfer(transfers: ParsedInstruction[], recipientAddress: string, expectedAmount: string) {
+    const transfer = transfers.find(ix => {
+        const info = ix.parsed!.info as { destination: string };
+        return info.destination === recipientAddress;
+    });
+
+    if (!transfer) {
+        throw new Error(`No system transfer instruction found for recipient ${recipientAddress}`);
+    }
+
+    const info = transfer.parsed!.info as { destination: string; lamports: number };
+    if (String(info.lamports) !== expectedAmount) {
+        throw new Error(
+            `Amount mismatch for ${recipientAddress}: expected ${expectedAmount} lamports, got ${info.lamports}`,
+        );
     }
 }
 
@@ -325,6 +375,7 @@ type ChallengeRequest = {
         recentBlockhash?: string;
         reference: string;
         splToken?: string;
+        splits?: Array<{ amount: string; memo?: string; recipient: string }>;
         tokenProgram?: string;
     };
     recipient: string;
@@ -396,6 +447,9 @@ async function simulateTransaction(rpcUrl: string, base64Tx: string): Promise<vo
     if (data.error) throw new Error(`RPC error: ${data.error.message}`);
     const simErr = data.result?.value?.err;
     if (simErr) {
+        const logs = data.result?.value?.logs ?? [];
+        console.error('[solana-mpp] Simulation failed:', JSON.stringify(simErr));
+        for (const log of logs) console.error('[solana-mpp]', log);
         throw new Error(`Transaction simulation failed: ${JSON.stringify(simErr)}`);
     }
 }
@@ -473,6 +527,15 @@ export declare namespace charge {
         signer?: TransactionPartialSigner;
         /** SPL token mint address. If absent, payments are in native SOL. */
         splToken?: string;
+        /** Additional payment splits. Same asset as primary payment. Max 8 entries. */
+        splits?: Array<{
+            /** Amount in base units (same asset as primary). */
+            amount: string;
+            /** Optional memo (max 566 bytes). */
+            memo?: string;
+            /** Base58-encoded recipient of this split. */
+            recipient: string;
+        }>;
         /**
          * Pluggable key-value store for consumed-signature tracking (replay prevention).
          * Defaults to in-memory. Use a persistent store in production.

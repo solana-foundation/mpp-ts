@@ -50,6 +50,19 @@ export const charge = Method.from({
                 reference: z.string(),
                 /** SPL token mint address. If absent, payment is in native SOL. */
                 splToken: z.optional(z.string()),
+                /** Additional payment splits (max 32). Same asset as primary payment. */
+                splits: z.optional(
+                    z.array(
+                        z.object({
+                            /** Amount in base units (same asset as primary). */
+                            amount: z.string(),
+                            /** Optional memo for this split (max 566 bytes). */
+                            memo: z.optional(z.string()),
+                            /** Base58-encoded recipient of this split. */
+                            recipient: z.string(),
+                        }),
+                    ),
+                ),
                 /** Token program address (TOKEN_PROGRAM or TOKEN_2022_PROGRAM). Defaults to TOKEN_PROGRAM. */
                 tokenProgram: z.optional(z.string()),
             }),

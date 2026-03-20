@@ -1,1 +1,1 @@
-export { Mppx, solana, Store } from 'solana-mpp-sdk/server'
+export { Mppx, solana, Store } from '@solana/mpp/server'

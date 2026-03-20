@@ -1,9 +1,9 @@
 import type { Express } from 'express'
 import type { KeyPairSigner } from '@solana/kit'
 import YahooFinance from 'yahoo-finance2'
-const yahooFinance = new YahooFinance()
+const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] })
 import { Mppx, solana } from '../sdk.js'
-import { toWebRequest } from '../utils.js'
+import { toWebRequest, logPayment } from '../utils.js'
 import { USDC_MINT } from '../constants.js'
 
 export function registerStocks(
@@ -42,6 +42,7 @@ export function registerStocks(
     try {
       const quote = await yahooFinance.quote(req.params.symbol)
       const response = result.withReceipt(Response.json(quote)) as Response
+      logPayment(req.path, response)
       res.writeHead(response.status, Object.fromEntries(response.headers))
       res.end(await response.text())
     } catch (err) {

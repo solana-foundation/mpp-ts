@@ -32,6 +32,16 @@ export const ENDPOINTS: Endpoint[] = [
     cost: '0.01 USDC',
     params: [{ name: 'city', default: 'san-francisco' }],
   },
+  {
+    method: 'GET',
+    path: '/api/v1/marketplace/buy/:productId',
+    description: 'Marketplace purchase (splits)',
+    cost: '~2.14 USDC',
+    params: [
+      { name: 'productId', default: 'sol-hoodie' },
+      { name: 'referrer', default: '' },
+    ],
+  },
 ]
 
 /** Build a URL from an endpoint and parameter values. */
@@ -55,7 +65,7 @@ export function buildUrl(endpoint: Endpoint, paramValues: Record<string, string>
 /** Generate a code snippet for a given endpoint. */
 export function buildSnippet(endpoint: Endpoint, paramValues: Record<string, string>): string {
   const url = buildUrl(endpoint, paramValues)
-  return `import { Mppx, solana } from 'solana-mpp-sdk/client'
+  return `import { Mppx, solana } from '@solana/mpp/client'
 
 const method = solana.charge({
   signer,   // TransactionSigner from @solana/kit

@@ -43,8 +43,8 @@ export function buildSwigSnippet(
 ): string {
   const url = buildSwigUrl(endpoint, paramValues)
 
-  return `import { Mppx, solana } from 'solana-mpp-sdk/client'
-import { SwigSessionAuthorizer } from 'solana-mpp-sdk'
+  return `import { Mppx, solana } from '@solana/mpp/client'
+import { SwigSessionAuthorizer } from '@solana/mpp'
 
 // 1) Create/fetch Swig role + delegated session key on-chain
 // 2) Wire adapter into SwigSessionAuthorizer

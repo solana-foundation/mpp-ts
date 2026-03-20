@@ -18,8 +18,8 @@ import {
   getCreateAssociatedTokenIdempotentInstruction,
   getTransferCheckedInstruction,
 } from '@solana-program/token'
-import { Mppx, solana } from 'solana-mpp-sdk/client'
-import { SwigSessionAuthorizer } from 'solana-mpp-sdk'
+import { Mppx, solana } from '@solana/mpp/client'
+import { SwigSessionAuthorizer } from '@solana/mpp'
 import {
   getAddAuthorityInstructions,
   fetchSwig,

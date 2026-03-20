@@ -29,6 +29,7 @@ function signatureCredential(
         splToken?: string;
         decimals?: number;
         tokenProgram?: string;
+        splits?: Array<{ recipient: string; amount: string; memo?: string }>;
     } = {},
 ) {
     return {
@@ -48,6 +49,7 @@ function signatureCredential(
                               tokenProgram: overrides.tokenProgram ?? TOKEN_PROGRAM,
                           }
                         : {}),
+                    ...(overrides.splits ? { splits: overrides.splits } : {}),
                 },
             },
         },
@@ -285,7 +287,7 @@ test('signature: rejects SOL transfer with wrong recipient', async () => {
             credential: signatureCredential(SIGNATURE, { amount: '1000000' }),
             request: {} as any,
         }),
-    ).rejects.toThrow(/Recipient mismatch/);
+    ).rejects.toThrow(/No.*transfer.*instruction.*found|Recipient mismatch/);
 });
 
 test('signature: rejects SOL transfer with wrong amount', async () => {
@@ -367,7 +369,7 @@ test('signature: rejects SPL transfer with wrong mint', async () => {
             }),
             request: {} as any,
         }),
-    ).rejects.toThrow(/Token mint mismatch/);
+    ).rejects.toThrow(/No TransferChecked instruction found|Token mint mismatch/);
 });
 
 test('signature: rejects SPL transfer with wrong amount', async () => {
@@ -422,7 +424,7 @@ test('signature: rejects SPL transfer with wrong destination ATA', async () => {
             }),
             request: {} as any,
         }),
-    ).rejects.toThrow(/Destination token account does not belong to expected recipient/);
+    ).rejects.toThrow(/No TransferChecked instruction found|Destination token account does not belong/);
 });
 
 // ── Replay prevention (type="signature") ──
@@ -683,7 +685,7 @@ test('transaction: rejects when on-chain verification fails (wrong recipient)', 
             credential: transactionCredential(FAKE_TX_BASE64, { amount: '1000000' }),
             request: {} as any,
         }),
-    ).rejects.toThrow(/Recipient mismatch/);
+    ).rejects.toThrow(/No.*transfer.*instruction.*found|Recipient mismatch/);
 });
 
 test('transaction: throws when transaction data is missing', async () => {
@@ -713,4 +715,251 @@ test('transaction: throws when transaction data is missing', async () => {
             request: {} as any,
         }),
     ).rejects.toThrow(/Missing transaction data/);
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// Splits
+// ══════════════════════════════════════════════════════════════════════
+
+const PLATFORM = '3pF8Kg2aHbNvJkLMwEqR7YtDxZ5sGhJn4UV6mWcXrT9A';
+
+test('splits: charge() rejects more than 8 splits', () => {
+    const splits = Array.from({ length: 9 }, () => ({
+        recipient: PLATFORM,
+        amount: '1000',
+    }));
+    expect(() => charge({ recipient: RECIPIENT, network: 'devnet', store, splits })).toThrow(/exceed 8/);
+});
+
+test('splits: request() includes splits in challenge', async () => {
+    globalThis.fetch = async () =>
+        rpcSuccess({
+            value: { blockhash: 'MockBlockhash1111111111111111111111111111111', lastValidBlockHeight: 100 },
+        });
+
+    const splits = [{ recipient: PLATFORM, amount: '50000', memo: 'platform fee' }];
+    const method = charge({ recipient: RECIPIENT, network: 'devnet', store, splits });
+
+    const request = await method.request!({
+        credential: null,
+        request: { amount: '1050000', currency: 'SOL', recipient: '', methodDetails: { reference: '' } },
+    });
+
+    expect(request.methodDetails.splits).toBeTruthy();
+    expect(request.methodDetails.splits!.length).toBe(1);
+    expect(request.methodDetails.splits![0].recipient).toBe(PLATFORM);
+    expect(request.methodDetails.splits![0].amount).toBe('50000');
+    expect(request.methodDetails.splits![0].memo).toBe('platform fee');
+});
+
+test('splits: SOL verification passes with valid primary + split transfers', async () => {
+    const splits = [{ recipient: PLATFORM, amount: '50000' }];
+    const method = charge({ recipient: RECIPIENT, network: 'devnet', rpcUrl: 'https://mock-rpc', store, splits });
+
+    globalThis.fetch = async () =>
+        rpcSuccess({
+            meta: { err: null },
+            transaction: {
+                message: {
+                    instructions: [
+                        {
+                            program: 'system',
+                            parsed: { type: 'transfer', info: { destination: RECIPIENT, lamports: 950000 } },
+                        },
+                        {
+                            program: 'system',
+                            parsed: { type: 'transfer', info: { destination: PLATFORM, lamports: 50000 } },
+                        },
+                    ],
+                },
+            },
+        });
+
+    const receipt = await method.verify({
+        credential: signatureCredential(SIGNATURE, { amount: '1000000', splits }),
+        request: {} as any,
+    });
+
+    expect(receipt.status).toBe('success');
+});
+
+test('splits: SOL verification fails when split transfer missing', async () => {
+    const splits = [{ recipient: PLATFORM, amount: '50000' }];
+    const method = charge({ recipient: RECIPIENT, network: 'devnet', rpcUrl: 'https://mock-rpc', store, splits });
+
+    globalThis.fetch = async () =>
+        rpcSuccess({
+            meta: { err: null },
+            transaction: {
+                message: {
+                    instructions: [
+                        {
+                            program: 'system',
+                            parsed: { type: 'transfer', info: { destination: RECIPIENT, lamports: 950000 } },
+                        },
+                    ],
+                },
+            },
+        });
+
+    await expect(
+        method.verify({
+            credential: signatureCredential(SIGNATURE, { amount: '1000000', splits }),
+            request: {} as any,
+        }),
+    ).rejects.toThrow(/No.*transfer.*instruction.*found.*3pF8/);
+});
+
+test('splits: SOL verification fails when split amount is wrong', async () => {
+    const splits = [{ recipient: PLATFORM, amount: '50000' }];
+    const method = charge({ recipient: RECIPIENT, network: 'devnet', rpcUrl: 'https://mock-rpc', store, splits });
+
+    globalThis.fetch = async () =>
+        rpcSuccess({
+            meta: { err: null },
+            transaction: {
+                message: {
+                    instructions: [
+                        {
+                            program: 'system',
+                            parsed: { type: 'transfer', info: { destination: RECIPIENT, lamports: 950000 } },
+                        },
+                        {
+                            program: 'system',
+                            parsed: { type: 'transfer', info: { destination: PLATFORM, lamports: 25000 } },
+                        },
+                    ],
+                },
+            },
+        });
+
+    await expect(
+        method.verify({
+            credential: signatureCredential(SIGNATURE, { amount: '1000000', splits }),
+            request: {} as any,
+        }),
+    ).rejects.toThrow(/Amount mismatch.*3pF8/);
+});
+
+test('splits: rejects splits that consume entire amount', async () => {
+    const splits = [{ recipient: PLATFORM, amount: '1000000' }];
+    const method = charge({ recipient: RECIPIENT, network: 'devnet', rpcUrl: 'https://mock-rpc', store, splits });
+
+    globalThis.fetch = async () => rpcSuccess({ meta: { err: null }, transaction: { message: { instructions: [] } } });
+
+    await expect(
+        method.verify({
+            credential: signatureCredential(SIGNATURE, { amount: '1000000', splits }),
+            request: {} as any,
+        }),
+    ).rejects.toThrow(/primary recipient must receive a positive amount/);
+});
+
+test('splits: rejects splits that exceed total amount', async () => {
+    const splits = [{ recipient: PLATFORM, amount: '2000000' }];
+    const method = charge({ recipient: RECIPIENT, network: 'devnet', rpcUrl: 'https://mock-rpc', store, splits });
+
+    globalThis.fetch = async () => rpcSuccess({ meta: { err: null }, transaction: { message: { instructions: [] } } });
+
+    await expect(
+        method.verify({
+            credential: signatureCredential(SIGNATURE, { amount: '1000000', splits }),
+            request: {} as any,
+        }),
+    ).rejects.toThrow(/primary recipient must receive a positive amount/);
+});
+
+test('splits: SPL verification passes with valid primary + split transfers', async () => {
+    const splits = [{ recipient: PLATFORM, amount: '50000' }];
+    const method = charge({
+        recipient: RECIPIENT,
+        splToken: USDC_MINT,
+        decimals: 6,
+        network: 'devnet',
+        rpcUrl: 'https://mock-rpc',
+        store,
+        splits,
+    });
+
+    const [recipientAta] = await findAssociatedTokenPda({
+        mint: address(USDC_MINT),
+        owner: address(RECIPIENT),
+        tokenProgram: address(TOKEN_PROGRAM),
+    });
+    const [platformAta] = await findAssociatedTokenPda({
+        mint: address(USDC_MINT),
+        owner: address(PLATFORM),
+        tokenProgram: address(TOKEN_PROGRAM),
+    });
+
+    globalThis.fetch = async () =>
+        rpcSuccess({
+            meta: { err: null },
+            transaction: {
+                message: {
+                    instructions: [
+                        {
+                            programId: TOKEN_PROGRAM,
+                            parsed: {
+                                type: 'transferChecked',
+                                info: { destination: recipientAta, mint: USDC_MINT, tokenAmount: { amount: '950000' } },
+                            },
+                        },
+                        {
+                            programId: TOKEN_PROGRAM,
+                            parsed: {
+                                type: 'transferChecked',
+                                info: { destination: platformAta, mint: USDC_MINT, tokenAmount: { amount: '50000' } },
+                            },
+                        },
+                    ],
+                },
+            },
+        });
+
+    const receipt = await method.verify({
+        credential: signatureCredential(SIGNATURE, { amount: '1000000', splToken: USDC_MINT, decimals: 6, splits }),
+        request: {} as any,
+    });
+
+    expect(receipt.status).toBe('success');
+});
+
+test('splits: multiple splits with SOL', async () => {
+    const REFERRER = '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU';
+    const splits = [
+        { recipient: PLATFORM, amount: '30000' },
+        { recipient: REFERRER, amount: '20000' },
+    ];
+    const method = charge({ recipient: RECIPIENT, network: 'devnet', rpcUrl: 'https://mock-rpc', store, splits });
+
+    globalThis.fetch = async () =>
+        rpcSuccess({
+            meta: { err: null },
+            transaction: {
+                message: {
+                    instructions: [
+                        {
+                            program: 'system',
+                            parsed: { type: 'transfer', info: { destination: RECIPIENT, lamports: 950000 } },
+                        },
+                        {
+                            program: 'system',
+                            parsed: { type: 'transfer', info: { destination: PLATFORM, lamports: 30000 } },
+                        },
+                        {
+                            program: 'system',
+                            parsed: { type: 'transfer', info: { destination: REFERRER, lamports: 20000 } },
+                        },
+                    ],
+                },
+            },
+        });
+
+    const receipt = await method.verify({
+        credential: signatureCredential(SIGNATURE, { amount: '1000000', splits }),
+        request: {} as any,
+    });
+
+    expect(receipt.status).toBe('success');
 });
