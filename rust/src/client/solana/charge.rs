@@ -10,7 +10,9 @@ use solana_transaction::Transaction;
 use std::str::FromStr;
 
 use crate::error::Error;
-use crate::protocol::methods::solana::{programs, CredentialPayload, SolanaMethodDetails, Split};
+use crate::protocol::methods::solana::{
+    programs, CredentialPayload, MppChallenge, MppRequest, SolanaMethodDetails, Split,
+};
 
 /// Build a charge transaction from the challenge parameters.
 ///
@@ -65,7 +67,7 @@ pub async fn build_charge_transaction(
     instructions.push(compute_unit_price_ix(1));
     instructions.push(compute_unit_limit_ix(200_000));
 
-    let mint = if currency != "sol" { Some(currency) } else { None };
+    let mint = resolve_mint(currency, method_details.network.as_deref());
 
     if let Some(mint_str) = mint {
         build_spl_instructions(
@@ -132,6 +134,109 @@ pub async fn build_charge_transaction(
     Ok(CredentialPayload::Transaction {
         transaction: encoded,
     })
+}
+
+/// Parse an MPP challenge from the `www-authenticate` header value.
+///
+/// Supports the mppx format:
+/// ```text
+/// Payment id="...", realm="MPP Payment", method="solana", intent="charge", request="<base64url>"
+/// ```
+pub fn parse_www_authenticate(header_value: &str) -> Option<MppChallenge> {
+    if !header_value.starts_with("Payment ") || !header_value.contains("method=\"solana\"") {
+        return None;
+    }
+
+    let id = extract_quoted_param(header_value, "id")?;
+    let realm = extract_quoted_param(header_value, "realm").unwrap_or_default();
+    let method = extract_quoted_param(header_value, "method")?;
+    let intent = extract_quoted_param(header_value, "intent").unwrap_or_default();
+    let request_encoded = extract_quoted_param(header_value, "request")?;
+    let description = extract_quoted_param(header_value, "description");
+    let expires = extract_quoted_param(header_value, "expires");
+
+    use base64::Engine;
+    let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(&request_encoded)
+        .or_else(|_| {
+            let padded = pad_base64(&request_encoded);
+            base64::engine::general_purpose::STANDARD.decode(padded.as_bytes())
+        })
+        .ok()?;
+    let request: MppRequest = serde_json::from_slice(&decoded).ok()?;
+
+    Some(MppChallenge {
+        id,
+        realm,
+        method,
+        intent,
+        request_encoded,
+        description,
+        expires,
+        request,
+    })
+}
+
+/// Build a credential and return the `Authorization` header value.
+///
+/// Returns `"Payment <base64url(credential_json)>"`.
+pub async fn build_credential_header(
+    signer: &dyn SolanaSigner,
+    rpc: &RpcClient,
+    challenge: &MppChallenge,
+) -> Result<String, Error> {
+    let credential_payload = build_charge_transaction(
+        signer,
+        rpc,
+        &challenge.request.amount,
+        &challenge.request.currency,
+        &challenge.request.recipient,
+        &challenge.request.method_details,
+    )
+    .await?;
+
+    let mut challenge_wire = serde_json::json!({
+        "id": challenge.id,
+        "realm": challenge.realm,
+        "method": challenge.method,
+        "intent": challenge.intent,
+        "request": challenge.request_encoded,
+    });
+    if let Some(desc) = &challenge.description {
+        challenge_wire["description"] = serde_json::json!(desc);
+    }
+    if let Some(exp) = &challenge.expires {
+        challenge_wire["expires"] = serde_json::json!(exp);
+    }
+
+    let credential = serde_json::json!({
+        "challenge": challenge_wire,
+        "payload": credential_payload,
+    });
+
+    use base64::Engine;
+    let json_str = serde_json::to_string(&credential)
+        .map_err(|e| Error::Other(format!("JSON serialization failed: {e}")))?;
+    let encoded =
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(json_str.as_bytes());
+    Ok(format!("Payment {encoded}"))
+}
+
+fn extract_quoted_param(header: &str, param: &str) -> Option<String> {
+    let prefix = format!("{param}=\"");
+    let start = header.find(&prefix)? + prefix.len();
+    let rest = &header[start..];
+    let end = rest.find('"')?;
+    Some(rest[..end].to_string())
+}
+
+fn pad_base64(input: &str) -> String {
+    let rem = input.len() % 4;
+    if rem == 0 {
+        input.to_string()
+    } else {
+        format!("{}{}", input, "=".repeat(4 - rem))
+    }
 }
 
 // ── Compute budget instructions (inline, no heavy dep) ──
@@ -308,5 +413,132 @@ fn transfer_checked_ix(
             AccountMeta::new_readonly(*authority, true),
         ],
         data,
+    }
+}
+
+/// Resolve a currency to an optional mint address.
+///
+/// Returns `None` for native SOL, or `Some(mint_address)` for SPL tokens.
+/// Supports well-known symbols (USDC, PYUSD) and raw mint addresses.
+fn resolve_mint<'a>(currency: &'a str, network: Option<&str>) -> Option<&'a str> {
+    match currency.to_uppercase().as_str() {
+        "SOL" => None,
+        "USDC" => Some(match network {
+            Some("devnet") => "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+            _ => "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        }),
+        "PYUSD" => Some(match network {
+            Some("devnet") => "CXk2AMBfi3TwaEL2468s6zP8xq9NxTXjp9gjMgzeUynM",
+            _ => "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo",
+        }),
+        // If it's not a known symbol, assume it's already a mint address
+        _ => Some(currency),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_mppx_www_authenticate() {
+        use base64::Engine;
+        let request_json = serde_json::json!({
+            "amount": "10000",
+            "currency": "USDC",
+            "recipient": "CXhrFZJLKqjzmP3sjYLcF4dTeXWKCy9e2SXXZ2Yo6MPY",
+            "methodDetails": {
+                "reference": "test-ref-123",
+                "network": "devnet",
+                "splToken": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+                "decimals": 6
+            }
+        });
+        let b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(serde_json::to_vec(&request_json).unwrap());
+        let header = format!(
+            "Payment id=\"abc123\", realm=\"MPP Payment\", method=\"solana\", intent=\"charge\", request=\"{b64}\""
+        );
+
+        let parsed = parse_www_authenticate(&header).unwrap();
+        assert_eq!(parsed.id, "abc123");
+        assert_eq!(parsed.realm, "MPP Payment");
+        assert_eq!(parsed.method, "solana");
+        assert_eq!(parsed.intent, "charge");
+        assert_eq!(parsed.request.amount, "10000");
+        assert_eq!(parsed.request.currency, "USDC");
+        assert_eq!(parsed.request.method_details.reference, "test-ref-123");
+    }
+
+    #[test]
+    fn parse_www_authenticate_with_description_and_expires() {
+        use base64::Engine;
+        let request_json = serde_json::json!({
+            "amount": "5000",
+            "currency": "SOL",
+            "recipient": "So11111111111111111111111111111111111111112",
+            "methodDetails": { "reference": "ref-1", "network": "localnet" }
+        });
+        let b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(serde_json::to_vec(&request_json).unwrap());
+        let header = format!(
+            "Payment id=\"x\", realm=\"test\", method=\"solana\", intent=\"charge\", request=\"{b64}\", description=\"Weather data\", expires=\"2026-12-31T00:00:00Z\""
+        );
+
+        let parsed = parse_www_authenticate(&header).unwrap();
+        assert_eq!(parsed.description.as_deref(), Some("Weather data"));
+        assert_eq!(parsed.expires.as_deref(), Some("2026-12-31T00:00:00Z"));
+    }
+
+    #[test]
+    fn parse_non_payment_header() {
+        assert!(parse_www_authenticate("Bearer realm=\"api\"").is_none());
+    }
+
+    #[test]
+    fn parse_non_solana_method() {
+        assert!(
+            parse_www_authenticate("Payment id=\"x\", method=\"bitcoin\", request=\"abc\"")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn extract_param_works() {
+        let h = "Payment id=\"abc\", method=\"solana\", realm=\"test\"";
+        assert_eq!(extract_quoted_param(h, "id"), Some("abc".to_string()));
+        assert_eq!(extract_quoted_param(h, "method"), Some("solana".to_string()));
+        assert_eq!(extract_quoted_param(h, "realm"), Some("test".to_string()));
+        assert_eq!(extract_quoted_param(h, "missing"), None);
+    }
+
+    #[test]
+    fn pad_base64_works() {
+        assert_eq!(pad_base64("abc"), "abc=");
+        assert_eq!(pad_base64("ab"), "ab==");
+        assert_eq!(pad_base64("abcd"), "abcd");
+        assert_eq!(pad_base64("a"), "a===");
+    }
+
+    #[test]
+    fn resolve_mint_known_symbols() {
+        assert_eq!(resolve_mint("SOL", None), None);
+        assert_eq!(resolve_mint("sol", None), None);
+        assert_eq!(
+            resolve_mint("USDC", None),
+            Some("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
+        );
+        assert_eq!(
+            resolve_mint("USDC", Some("devnet")),
+            Some("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU")
+        );
+    }
+
+    #[test]
+    fn resolve_mint_passthrough() {
+        assert_eq!(
+            resolve_mint("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", None),
+            Some("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
+        );
     }
 }

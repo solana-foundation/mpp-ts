@@ -10,7 +10,7 @@ use crate::error::Error;
 pub fn verify_transaction_details(
     tx: &EncodedConfirmedTransactionWithStatusMeta,
     amount: &str,
-    currency: &str,
+    _currency: &str,
     recipient: &str,
     method_details: &SolanaMethodDetails,
 ) -> Result<(), Error> {

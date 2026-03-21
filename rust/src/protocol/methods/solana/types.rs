@@ -90,6 +90,46 @@ pub enum CredentialPayload {
     },
 }
 
+/// A parsed MPP challenge from a `www-authenticate` header.
+///
+/// Contains the full challenge context needed to build a credential.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MppChallenge {
+    /// The challenge ID.
+    pub id: String,
+    /// The realm from the www-authenticate header.
+    pub realm: String,
+    /// The payment method (e.g. "solana").
+    pub method: String,
+    /// The intent (e.g. "charge").
+    pub intent: String,
+    /// The raw base64url-encoded request (preserved for the credential wire format).
+    pub request_encoded: String,
+    /// Optional description.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Optional expiration.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires: Option<String>,
+    /// The decoded request payload.
+    pub request: MppRequest,
+}
+
+/// The request portion of an MPP challenge.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MppRequest {
+    pub amount: String,
+    pub currency: String,
+    pub recipient: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_id: Option<String>,
+    pub method_details: SolanaMethodDetails,
+}
+
 /// Server-side charge configuration.
 #[derive(Debug, Clone)]
 pub struct SolanaChargeConfig {
