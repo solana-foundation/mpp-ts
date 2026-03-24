@@ -87,21 +87,21 @@ export async function deductFromChannel(
             return null;
         }
 
-        const settledAmount = parseAtomicAmount(current.settledAmount, 'settledAmount');
-        const authorizedAmount = parseAtomicAmount(current.lastAuthorizedAmount, 'lastAuthorizedAmount');
+        const spentAmount = parseAtomicAmount(current.spentAmount, 'spentAmount');
+        const acceptedCumulative = parseAtomicAmount(current.acceptedCumulative, 'acceptedCumulative');
         const escrowedAmount = parseAtomicAmount(current.escrowedAmount, 'escrowedAmount');
 
-        const spendCeiling = authorizedAmount < escrowedAmount ? authorizedAmount : escrowedAmount;
-        const nextSettledAmount = settledAmount + amount;
+        const spendCeiling = acceptedCumulative < escrowedAmount ? acceptedCumulative : escrowedAmount;
+        const nextSpentAmount = spentAmount + amount;
 
-        if (nextSettledAmount > spendCeiling) {
+        if (nextSpentAmount > spendCeiling) {
             return current;
         }
 
         deducted = true;
         return {
             ...current,
-            settledAmount: nextSettledAmount.toString(),
+            spentAmount: nextSpentAmount.toString(),
         };
     });
 

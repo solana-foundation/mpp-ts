@@ -13,8 +13,8 @@ export interface MakeSessionAuthorizerParameters {
     buildOpenTx?: (
         input: Parameters<NonNullable<BudgetAuthorizerParameters['buildOpenTx']>>[0],
     ) => Promise<string> | string;
-    buildTopupTx?: (
-        input: Parameters<NonNullable<BudgetAuthorizerParameters['buildTopupTx']>>[0],
+    buildTopUpTx?: (
+        input: Parameters<NonNullable<BudgetAuthorizerParameters['buildTopUpTx']>>[0],
     ) => Promise<string> | string;
     profile: SessionPolicyProfile;
     rpcUrl?: string;
@@ -54,7 +54,7 @@ export function makeSessionAuthorizer(parameters: MakeSessionAuthorizerParameter
                     ...(parameters.rpcUrl ? { rpcUrl: parameters.rpcUrl } : {}),
                 },
                 ...(parameters.buildOpenTx ? { buildOpenTx: parameters.buildOpenTx } : {}),
-                ...(parameters.buildTopupTx ? { buildTopupTx: parameters.buildTopupTx } : {}),
+                ...(parameters.buildTopUpTx ? { buildTopUpTx: parameters.buildTopUpTx } : {}),
                 ...(parameters.buildCloseTx ? { buildCloseTx: parameters.buildCloseTx } : {}),
             });
         }
@@ -65,10 +65,10 @@ export function makeSessionAuthorizer(parameters: MakeSessionAuthorizerParameter
                 signer,
                 ...(parameters.allowedPrograms ? { allowedPrograms: parameters.allowedPrograms } : {}),
                 ...(parameters.buildOpenTx ? { buildOpenTx: parameters.buildOpenTx } : {}),
-                ...(parameters.buildTopupTx ? { buildTopupTx: parameters.buildTopupTx } : {}),
+                ...(parameters.buildTopUpTx ? { buildTopUpTx: parameters.buildTopUpTx } : {}),
                 ...(parameters.buildCloseTx ? { buildCloseTx: parameters.buildCloseTx } : {}),
                 requiresInteractiveApproval: {
-                    update: profile.requireApprovalOnEveryUpdate,
+                    voucher: profile.requireApprovalOnEveryVoucher,
                 },
             };
 
@@ -86,7 +86,7 @@ export function makeSessionAuthorizer(parameters: MakeSessionAuthorizerParameter
                 ...(parameters.rpcUrl ? { rpcUrl: parameters.rpcUrl } : {}),
                 ...(parameters.allowedPrograms ? { allowedPrograms: parameters.allowedPrograms } : {}),
                 ...(parameters.buildOpenTx ? { buildOpenTx: parameters.buildOpenTx } : {}),
-                ...(parameters.buildTopupTx ? { buildTopupTx: parameters.buildTopupTx } : {}),
+                ...(parameters.buildTopUpTx ? { buildTopUpTx: parameters.buildTopUpTx } : {}),
                 ...(parameters.buildCloseTx ? { buildCloseTx: parameters.buildCloseTx } : {}),
             });
         }
