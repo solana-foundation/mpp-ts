@@ -4,5 +4,6 @@
     "types": ["node", "vitest/globals"],
     "outDir": "dist"
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["src/__tests__/*-integration.test.ts"]
 }
