@@ -65,7 +65,7 @@ jobs:
       - run: pnpm typecheck
 
   test-ts:
-    name: TypeScript tests + coverage
+    name: TypeScript tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -79,31 +79,23 @@ jobs:
           cache-dependency-path: typescript/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:coverage
-
-      - name: Coverage report
-        if: always() && github.event_name == 'pull_request'
-        uses: davelosert/vitest-coverage-report-action@v2
+      - name: Upload TS coverage
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          working-directory: typescript
-          json-summary-path: coverage/coverage-summary.json
-          name: TypeScript
+          name: ts-coverage
+          path: typescript/coverage/coverage-summary.json
 
   test-rust:
-    name: Rust tests + coverage
+    name: Rust tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
           components: llvm-tools-preview
-
-      - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@cargo-llvm-cov
-
-      - name: Cache cargo
-        uses: actions/cache@v4
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
@@ -111,44 +103,83 @@ jobs:
             rust/target
           key: ${{ runner.os }}-cargo-rust-${{ hashFiles('rust/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-rust-
-
       - name: Run tests with coverage
         working-directory: rust
-        run: cargo llvm-cov --lcov --output-path coverage.lcov
-
-      - name: Generate coverage summary
-        if: always()
-        id: rust-cov
-        working-directory: rust
-        run: |
-          # Parse lcov to extract summary
-          TOTAL_LINES=$(grep -c "^DA:" coverage.lcov || echo 0)
-          HIT_LINES=$(grep "^DA:" coverage.lcov | grep -v ",0$" | wc -l | tr -d ' ')
-          if [ "$TOTAL_LINES" -gt 0 ]; then
-            PCT=$(echo "scale=1; $HIT_LINES * 100 / $TOTAL_LINES" | bc)
-          else
-            PCT="0.0"
-          fi
-          echo "total=$TOTAL_LINES" >> $GITHUB_OUTPUT
-          echo "hit=$HIT_LINES" >> $GITHUB_OUTPUT
-          echo "pct=$PCT" >> $GITHUB_OUTPUT
-
-      - name: Comment PR with Rust coverage
-        if: always() && github.event_name == 'pull_request'
-        uses: marocchino/sticky-pull-request-comment@v2
-        with:
-          header: rust-coverage
-          message: |
-            ### Rust Coverage
-
-            | Metric | Value |
-            |--------|-------|
-            | Lines covered | ${{ steps.rust-cov.outputs.hit }} / ${{ steps.rust-cov.outputs.total }} |
-            | Coverage | **${{ steps.rust-cov.outputs.pct }}%** |
-
+        run: cargo llvm-cov --json --output-path coverage.json
       - name: Rust format check
         working-directory: rust
         run: cargo fmt --check
+      - name: Upload Rust coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-coverage
+          path: rust/coverage.json
+
+  coverage-report:
+    name: Coverage report
+    if: always() && github.event_name == 'pull_request'
+    needs: [test-ts, test-rust]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download TS coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: ts-coverage
+          path: ts-cov
+        continue-on-error: true
+
+      - name: Download Rust coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: rust-coverage
+          path: rust-cov
+        continue-on-error: true
+
+      - name: Build coverage comment
+        id: cov
+        run: |
+          # ── TypeScript ──
+          TS_STMTS="-" TS_BRANCH="-" TS_FUNC="-" TS_LINES="-"
+          if [ -f ts-cov/coverage-summary.json ]; then
+            TS_STMTS=$(jq -r '.total.statements.pct' ts-cov/coverage-summary.json)
+            TS_BRANCH=$(jq -r '.total.branches.pct' ts-cov/coverage-summary.json)
+            TS_FUNC=$(jq -r '.total.functions.pct' ts-cov/coverage-summary.json)
+            TS_LINES=$(jq -r '.total.lines.pct' ts-cov/coverage-summary.json)
+          fi
+
+          # ── Rust ──
+          RS_LINES="-" RS_FUNC="-" RS_REGIONS="-"
+          if [ -f rust-cov/coverage.json ]; then
+            RS_LINES=$(jq -r '[.data[0].totals.lines.percent] | .[0] | . * 10 | round / 10' rust-cov/coverage.json)
+            RS_FUNC=$(jq -r '[.data[0].totals.functions.percent] | .[0] | . * 10 | round / 10' rust-cov/coverage.json)
+            RS_REGIONS=$(jq -r '[.data[0].totals.regions.percent] | .[0] | . * 10 | round / 10' rust-cov/coverage.json)
+          fi
+
+          # ── Badge colors ──
+          badge() { if [ "$(echo "$1 >= 80" | bc -l)" = "1" ]; then echo "🟢"; elif [ "$(echo "$1 >= 60" | bc -l)" = "1" ]; then echo "🟡"; else echo "🔴"; fi; }
+
+          TS_BADGE=$(badge "$TS_LINES" 2>/dev/null || echo "⚪")
+          RS_BADGE=$(badge "$RS_LINES" 2>/dev/null || echo "⚪")
+
+          # ── Build comment ──
+          {
+            echo "body<<EOFCOMMENT"
+            echo "## Test Coverage"
+            echo ""
+            echo "| | Statements | Branches | Functions | Lines |"
+            echo "|---|---|---|---|---|"
+            echo "| ${TS_BADGE} **TypeScript** | ${TS_STMTS}% | ${TS_BRANCH}% | ${TS_FUNC}% | ${TS_LINES}% |"
+            echo "| ${RS_BADGE} **Rust** | ${RS_REGIONS}% | — | ${RS_FUNC}% | ${RS_LINES}% |"
+            echo "EOFCOMMENT"
+          } >> "$GITHUB_OUTPUT"
+        working-directory: .
+
+      - name: Post coverage comment
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: coverage
+          message: ${{ steps.cov.outputs.body }}
 
   integration:
     name: Integration tests

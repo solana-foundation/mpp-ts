@@ -231,16 +231,12 @@ describe('deductFromChannel', () => {
         const channel = makeChannelState({ channelId: 'ch-deduct-neg' });
         await cs.updateChannel('ch-deduct-neg', () => channel);
 
-        await expect(ChannelStore.deductFromChannel(cs, 'ch-deduct-neg', -1n)).rejects.toThrow(
-            /non-negative/,
-        );
+        await expect(ChannelStore.deductFromChannel(cs, 'ch-deduct-neg', -1n)).rejects.toThrow(/non-negative/);
     });
 
     test('throws when channel does not exist', async () => {
         const cs = ChannelStore.fromStore(store);
 
-        await expect(ChannelStore.deductFromChannel(cs, 'nonexistent', 10n)).rejects.toThrow(
-            /channel not found/,
-        );
+        await expect(ChannelStore.deductFromChannel(cs, 'nonexistent', 10n)).rejects.toThrow(/channel not found/);
     });
 });

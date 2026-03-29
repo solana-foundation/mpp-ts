@@ -25,11 +25,13 @@ beforeEach(async () => {
     signer = await generateKeyPairSigner();
 });
 
-function mockSwigModule(overrides: {
-    canUseProgram?: (pid: string) => boolean;
-    solSpendLimit?: () => bigint | null;
-    tokenSpendLimit?: (mint: string) => bigint | null;
-} = {}): BudgetSwigModule {
+function mockSwigModule(
+    overrides: {
+        canUseProgram?: (pid: string) => boolean;
+        solSpendLimit?: () => bigint | null;
+        tokenSpendLimit?: (mint: string) => bigint | null;
+    } = {},
+): BudgetSwigModule {
     return {
         fetchSwig: async () => ({
             findRoleById: (id: number) => ({
@@ -135,12 +137,7 @@ describe('BudgetAuthorizer construction', () => {
     });
 
     test('throws on invalid validUntil timestamp', () => {
-        expect(
-            () =>
-                new BudgetAuthorizer(
-                    makeParams({ validUntil: 'not-a-date' }),
-                ),
-        ).toThrow(/valid ISO timestamp/);
+        expect(() => new BudgetAuthorizer(makeParams({ validUntil: 'not-a-date' }))).toThrow(/valid ISO timestamp/);
     });
 
     test('getMode returns regular_budget', () => {
@@ -190,15 +187,11 @@ describe('authorizeOpen', () => {
             }),
         );
 
-        await expect(
-            auth.authorizeOpen(makeOpenInput({ depositAmount: '600' })),
-        ).rejects.toThrow(/maxDepositAmount/);
+        await expect(auth.authorizeOpen(makeOpenInput({ depositAmount: '600' }))).rejects.toThrow(/maxDepositAmount/);
     });
 
     test('throws when buildOpenTx is not provided', async () => {
-        const auth = new BudgetAuthorizer(
-            makeParams({ buildOpenTx: undefined }),
-        );
+        const auth = new BudgetAuthorizer(makeParams({ buildOpenTx: undefined }));
 
         await expect(auth.authorizeOpen(makeOpenInput())).rejects.toThrow(/buildOpenTx/);
     });
@@ -396,9 +389,7 @@ describe('authorizeTopup', () => {
 
     test('throws when buildTopupTx is not provided', async () => {
         const channelId = `ch-no-topup-${crypto.randomUUID()}`;
-        const auth = new BudgetAuthorizer(
-            makeParams({ buildTopupTx: undefined }),
-        );
+        const auth = new BudgetAuthorizer(makeParams({ buildTopupTx: undefined }));
 
         await auth.authorizeOpen(makeOpenInput({ channelId }));
 
@@ -477,9 +468,7 @@ describe('authorizeClose', () => {
 
 describe('expiration', () => {
     test('rejects operations after policy expiry', async () => {
-        const auth = new BudgetAuthorizer(
-            makeParams({ validUntil: '2000-01-01T00:00:00.000Z' }),
-        );
+        const auth = new BudgetAuthorizer(makeParams({ validUntil: '2000-01-01T00:00:00.000Z' }));
 
         await expect(auth.authorizeOpen(makeOpenInput())).rejects.toThrow(/expired/);
     });
@@ -487,9 +476,7 @@ describe('expiration', () => {
 
 describe('program allowlist', () => {
     test('rejects disallowed program', async () => {
-        const auth = new BudgetAuthorizer(
-            makeParams({ allowedPrograms: ['otherProgram'] }),
-        );
+        const auth = new BudgetAuthorizer(makeParams({ allowedPrograms: ['otherProgram'] }));
 
         await expect(auth.authorizeOpen(makeOpenInput())).rejects.toThrow(/not allowed/);
     });

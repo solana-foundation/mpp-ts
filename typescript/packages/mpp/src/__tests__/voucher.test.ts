@@ -4,12 +4,7 @@
 import { generateKeyPairSigner } from '@solana/kit';
 
 import type { SessionVoucher, SignedSessionVoucher } from '../session/Types.js';
-import {
-    parseVoucherFromPayload,
-    serializeVoucher,
-    signVoucher,
-    verifyVoucherSignature,
-} from '../session/Voucher.js';
+import { parseVoucherFromPayload, serializeVoucher, signVoucher, verifyVoucherSignature } from '../session/Voucher.js';
 
 const SAMPLE_VOUCHER: SessionVoucher = {
     chainId: 'solana:devnet',

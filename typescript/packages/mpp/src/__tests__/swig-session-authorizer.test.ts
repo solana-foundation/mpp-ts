@@ -27,11 +27,13 @@ beforeEach(async () => {
     sessionKeySigner = await generateKeyPairSigner();
 });
 
-function mockSwigModule(overrides: {
-    canUseProgram?: (pid: string) => boolean;
-    solSpendLimit?: () => bigint | null;
-    tokenSpendLimit?: (mint: string) => bigint | null;
-} = {}): SwigSessionModule {
+function mockSwigModule(
+    overrides: {
+        canUseProgram?: (pid: string) => boolean;
+        solSpendLimit?: () => bigint | null;
+        tokenSpendLimit?: (mint: string) => bigint | null;
+    } = {},
+): SwigSessionModule {
     return {
         fetchSwig: async () => ({
             findRoleById: (id: number) => ({
@@ -266,9 +268,7 @@ describe('authorizeOpen', () => {
             }),
         );
 
-        await expect(
-            auth.authorizeOpen(makeOpenInput({ depositAmount: '600' })),
-        ).rejects.toThrow(/depositLimit/);
+        await expect(auth.authorizeOpen(makeOpenInput({ depositAmount: '600' }))).rejects.toThrow(/depositLimit/);
     });
 
     test('creates a session key via createSessionKey', async () => {
@@ -524,9 +524,7 @@ describe('authorizeTopup', () => {
 
     test('throws when buildTopupTx is not provided', async () => {
         const channelId = `ch-no-topup-${crypto.randomUUID()}`;
-        const auth = new SwigSessionAuthorizer(
-            makeParams({ buildTopupTx: undefined }),
-        );
+        const auth = new SwigSessionAuthorizer(makeParams({ buildTopupTx: undefined }));
 
         await auth.authorizeOpen(makeOpenInput({ channelId }));
 

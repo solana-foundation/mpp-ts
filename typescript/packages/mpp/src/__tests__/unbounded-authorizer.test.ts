@@ -185,15 +185,11 @@ describe('authorizeUpdate', () => {
 
         await auth.authorizeOpen(makeOpenInput({ channelId }));
 
-        await auth.authorizeUpdate(
-            makeUpdateInput({ channelId, cumulativeAmount: '100', sequence: 1 }),
-        );
+        await auth.authorizeUpdate(makeUpdateInput({ channelId, cumulativeAmount: '100', sequence: 1 }));
 
         // Replay same sequence
         await expect(
-            auth.authorizeUpdate(
-                makeUpdateInput({ channelId, cumulativeAmount: '200', sequence: 1 }),
-            ),
+            auth.authorizeUpdate(makeUpdateInput({ channelId, cumulativeAmount: '200', sequence: 1 })),
         ).rejects.toThrow(/Sequence must increase/);
     });
 
@@ -206,14 +202,10 @@ describe('authorizeUpdate', () => {
 
         await auth.authorizeOpen(makeOpenInput({ channelId }));
 
-        await auth.authorizeUpdate(
-            makeUpdateInput({ channelId, cumulativeAmount: '500', sequence: 1 }),
-        );
+        await auth.authorizeUpdate(makeUpdateInput({ channelId, cumulativeAmount: '500', sequence: 1 }));
 
         await expect(
-            auth.authorizeUpdate(
-                makeUpdateInput({ channelId, cumulativeAmount: '400', sequence: 2 }),
-            ),
+            auth.authorizeUpdate(makeUpdateInput({ channelId, cumulativeAmount: '400', sequence: 2 })),
         ).rejects.toThrow(/must not decrease/);
     });
 
@@ -226,11 +218,9 @@ describe('authorizeUpdate', () => {
 
         await auth.authorizeOpen(makeOpenInput({ channelId }));
 
-        await expect(
-            auth.authorizeUpdate(
-                makeUpdateInput({ channelId, sequence: -1 }),
-            ),
-        ).rejects.toThrow(/non-negative integer/);
+        await expect(auth.authorizeUpdate(makeUpdateInput({ channelId, sequence: -1 }))).rejects.toThrow(
+            /non-negative integer/,
+        );
     });
 
     test('rejects invalid cumulativeAmount string', async () => {
@@ -243,9 +233,7 @@ describe('authorizeUpdate', () => {
         await auth.authorizeOpen(makeOpenInput({ channelId }));
 
         await expect(
-            auth.authorizeUpdate(
-                makeUpdateInput({ channelId, cumulativeAmount: 'not-a-number', sequence: 1 }),
-            ),
+            auth.authorizeUpdate(makeUpdateInput({ channelId, cumulativeAmount: 'not-a-number', sequence: 1 })),
         ).rejects.toThrow(/valid integer string/);
     });
 });
@@ -312,9 +300,7 @@ describe('authorizeClose', () => {
         });
 
         await auth.authorizeOpen(makeOpenInput({ channelId, serverNonce }));
-        await auth.authorizeUpdate(
-            makeUpdateInput({ channelId, cumulativeAmount: '300', sequence: 1, serverNonce }),
-        );
+        await auth.authorizeUpdate(makeUpdateInput({ channelId, cumulativeAmount: '300', sequence: 1, serverNonce }));
 
         const result = await auth.authorizeClose({
             channelId,
