@@ -9,6 +9,7 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:integration": "vitest run --config vitest.config.integration.ts",
+    "test:surfpool": "vitest run --config vitest.config.surfpool.ts",
     "test:all": "pnpm test && pnpm test:integration",
     "typecheck": "pnpm -r typecheck",
     "lint": "eslint packages/*/src --ext .ts",
@@ -26,6 +27,7 @@
     "eslint": "^9.39.4",
     "prettier": "^3.8.1",
     "typescript": "^5.7.0",
+    "surfpool-sdk": "link:/Users/ludovic/Coding/surfpool/crates/sdk-node",
     "vitest": "^4.1.0"
   }
 }
